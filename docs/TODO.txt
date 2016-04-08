@@ -1,15 +1,23 @@
-========================
-TODO list for Dynamo 1.3
-========================
+======================
+TODO list for Dynamo 2
+======================
 
 (*) = done
 
 
-1. Sample/reference problem set
+1. Sample/reference problem set, unit tests
      (1) Include all the reference problems from Dynamo 1.2
-     (2) Additional sample problems for dissipative/partial systems
-           * Must cover all task types
-      3. Example of optimizing taus
+     (2) Random problem generator
+     (3) Demos and examples
+         (*)  all basic optimization tasks (open systems, _partial tasks...)
+         (*)  optimizing taus
+         (*)  ensemble optimization
+      4. Tests
+        (*) test_gradient
+         *  unit tests
+           *  the same unitary (closed) optimization problem should yield a similar solution in both "closed" and "open" modes
+           *  the same unitary sequence must return the same error in both "closed" and "open" modes
+         *  script that runs all the demos (to make sure they still run!)
 
 2. Minimal benchmarking framework
       1. Allow user to easily compare several algorithms for a given problem
@@ -17,11 +25,11 @@ TODO list for Dynamo 1.3
 
 3. Robust data provenance, reproducibility
      (1) Store in the dataset all necessary metadata, such as
-	 Dynamo version, a timestamp, author name, description string etc.
-           * Going from description to H is easy, H to description hard/impossible.
-      2. Store the optimization parameters, initial sequence etc. so
+         Dynamo version, a timestamp, author name, description string etc.
+         Going from description to H is easy, H to description hard/impossible.
+     (2) Store the optimization parameters, initial sequence etc. so
          the exact same optimization can be re-run any time. Add a
-	 function for this.
+         function for this.
      (3) In the system description, include also dimension vector and
          labels for the states and controls.
 
@@ -34,13 +42,14 @@ TODO list for Dynamo 1.3
       5. Preconditioning?
 
 5. Additional documentation
-      1. Inline in the code
-	   (*) Modify some variable names to be self-documenting
-      2. At function headers so Matlab's "help" gives more meaningful results
+     (1) Inline in the code
+           (*) Modify some variable names to be self-documenting
+     (2) At function headers so Matlab's "help" gives more meaningful results
       3. Wiki
-      4. Additional examples, see also 1.2
-      5. Add reference to github for those wishing to contribute
+      4. Update README.txt
+     (5) Add reference to github for those wishing to contribute
       6. dynamo_manual.tex
+     (7) Bibliography/references
 
 6. More optimization tasks
       1. Closed S+E, where we only care about S
@@ -50,26 +59,46 @@ TODO list for Dynamo 1.3
 
 7. More algorithms
       1. "Integrators"
-           * (expm), (eigendecomposition), expv, ode solvers (for time-dependent H:s and H_c:s), t-DMRG?
+           * (expm), (eigendecomposition), expv, ode solvers (for time-dependent H:s and H_c:s), t-DMRG, Taylor
       2. Gradients
-           * (GRAPE), (exact, finite diff, 1st order)
+           * (GRAPE), (exact, finite diff, 1st order), higher-order series
       3. Optimizers
-           * (k-BFGS, using fminunc), Newton-Raphson, Monotonic Krotov variant?, Simplex? (no gradient needed)
+           * (L-BFGS, using fminunc), Newton-Raphson, Monotonic Krotov variant?, NM simplex (no gradient needed)
 
-8. User interface
+8. User interface / features
       1. More button-type ui controls for the ui window
-           * Enable/disable tau optimization, save snapshot?, pause?, plotting interval...
+          *  Enable/disable tau optimization
+          *  save a copy/snapshot
+          *  pause
+          *  plotting interval
+          *  bin splitting
       2. Better API
-           * Replace s and sb with closed, open?
+          *  fix bad/undescriptive names
+      3. Other features
+         (*)  fix the stats system so that an interrupted optimization run can be continued
+          *  automatic top curve sweeping function
+          *  plot axis labels should have physical units if possible (qsystem.TU)
+
+9. Cleanup
+      1. Delete unused functions
+      2. Delete old demos
 
 
 Random ideas and things to test:
 
+- target = id with relaxation
+
+- S+E, S+E+B: Kosut's paper on non-markovian distance measures:
+  http://arxiv.org/abs/quant-ph/0606064
+
+- When are the controls kind of self-limited? Only if we need to wait
+  for H_drift (coupling) to complete the operation?
+
+- UI: monitor_func is not called reliably, thus optimization does not always
+  terminate when trying to close the UI window
 
 - express a state transfer problem in a Hermitian basis => real
   vectors and matrices instead of complex ones, faster...
-
-- Ask Frank about noncommuting dP/du algorithms
 
 - consistent function interface: dim as first or second parameter?
 
@@ -77,10 +106,9 @@ Random ideas and things to test:
   and squaring: Fouquieres et al., J. Magn. Reson. 212, 412 (2011).
   Automatic choice of \epsilon for finite-difference gradient method, ibid.
 
-- Augmented matrix exponential gradient module for open systems, Floether et al. (2012)
-
 - performance-compare error_full and the approximation given by error_real
 
+- automatic top-curve sweeper function, re-use optimal sequence from neighboring T, re-scale to new T
 - compare top-curve-sweeping for determining optimal T with direct tau-optimizing
 
 - Lots of profiling. why do we use almost 30% more time in task1 than Dynamo 1.2? recompute_timeslots is called more?!?
@@ -92,3 +120,19 @@ Random ideas and things to test:
   |X_f|^2 when doing state transfer since it (being the purity) varies?
 
 - check that the chosen gradient func matches with the error func!
+
+- fix the 'none yet' term reason when fminunc decides to terminate on its own
+
+- make setting control bounds/params easier/more automated
+
+- make sure that (printed) error function values are (1) somehow physical, (2) same/comparable between all optimization tasks
+
+- problems resulting from using an approximated gradient (incl. finite diff with bad epsilon): breaking symmetries in controls, bad convergence, fake "dynamic" local minima?
+
+- decide what to do with the 1st order gradients, they're awful. see @dynamo/gradient_test.m
+
+- combine similar gradient and error funcs if there is no perfomance loss, merge gradient_setup into gradient funcs themselves.
+
+- open state overlap mode: warn if final state is not pure
+
+- analytic and piecewise analytic controls: http://arxiv.org/abs/1507.04261

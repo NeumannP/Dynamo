@@ -1,17 +1,18 @@
 classdef control_seq < matlab.mixin.Copyable
 % Copyable handle class for control sequences.
 
-% Ville Bergholm 2011-2014
+% Ville Bergholm 2011-2015
 
   properties
-      tau_par        % parametrization of tau, Q[n_timeslots, 1:2]
-      control_type   % char array denoting the control type, Q[n_controls]
-      control_par    % cell array of control parameter structs, Q{n_controls}
+      tau_par        % parametrization of tau, size == [n_timeslots, 2]
+      control_type   % char array denoting the control type, size == [n_controls]
+      control_par    % cell array of control parameter structs, size == [n_controls]
 
-      raw            % untransformed control fields, last column is for tau: Q[n_timeslots, n_controls + 1]
-      tau            % timeslice duration, Q[timeslice]
+      raw            % untransformed control fields, last column is for tau: size == [n_timeslots, n_controls + 1]
+      % the data below are computed from raw using the control parametrization
+      tau            % timeslice duration, size == [n_timeslots]
       tau_deriv      % d tau / d tau_raw
-      fields         % transformed control fields, Q[n_timeslots, n_controls]
+      fields         % transformed control fields, size == [n_timeslots, n_controls]
       fields_deriv   % d fields / d fields_raw
   end
 
@@ -189,30 +190,32 @@ classdef control_seq < matlab.mixin.Copyable
     % Refines the sequence by splitting the given bins into n equal pieces.
     % If an empty vector of bin numbers is given, the entire sequence is refined.
 
+        % see how many timeslots we have after the split
         n_timeslots_old = self.n_timeslots();
         if isempty(bins)
             bins = 1:n_timeslots_old;
         else
             bins = unique(bins); % also sorts
         end
-        n_timeslots = n_timeslots_old + (n-1) * length(bins);
+        n_timeslots_new = n_timeslots_old + (n-1) * length(bins);
 
-        raw = zeros(n_timeslots, size(self.raw, 2));
-        tau_par = zeros(n_timeslots, 2);
-        % source and destination indices
+        raw = zeros(n_timeslots_new, size(self.raw, 2));
+        tau_par = zeros(n_timeslots_new, 2);
+        % source and destination indices (first unprocessed slots)
         si = 1;
         di = 1;
         for k=1:length(bins)
             b = bins(k);
             % a run of unchanged slots
-            run = b -1 -si;
+            run = b -si -1; % run length-1
             tau_par(di:di+run, :) = self.tau_par(si:si+run, :); 
             raw(di:di+run, :) = self.raw(si:si+run, :); 
-            % a split slot
             di = di+run+1;
-            % tau_par slots are actually split
+            % a split slot
+            % tau_par slots are actually split, raw slots are just duplicated
+            % this way we don't have to care about inverse transforms here.
+            % TODO should the split bins be able to strech as large as the parent?
             tau_par(di:di+n-1, :) = ones(n, 1) * self.tau_par(b, :) / n;
-            % raw slots are just multiplied
             raw(di:di+n-1, :) = ones(n, 1) * self.raw(b, :);
             si = b + 1;
             di = di + n;
@@ -225,7 +228,23 @@ classdef control_seq < matlab.mixin.Copyable
         self.tau_par = tau_par;
         self.set(raw);
     end
-    
+
+
+    function shake(self, rel_change)
+    % Makes a small random perturbation to the control sequence, can be used
+    % to shake the system out of a local optimum.
+    % Does not touch the tau values.
+
+        n_timeslots = self.n_timeslots();
+        n_controls = self.n_controls();
+        % shape vectors
+        f_shape = [n_timeslots, n_controls];
+
+        raw = self.get();
+        raw(:, 1:n_controls) = raw(:, 1:n_controls) .* (1 +rel_change * randn(f_shape));
+        self.set(raw);
+    end
+
 
     function ret = fluence(self, M)
     % Computes the total fluence of the control fields.

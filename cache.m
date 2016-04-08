@@ -125,8 +125,19 @@ classdef cache < matlab.mixin.Copyable
           self.L_is_stale(1:find(self.H_is_stale, 1, 'last'))         = true;
           self.g_is_stale = true;
       end
-      
-      
+
+
+      function set_P(self, t, k, P)
+      % Sets P{t, k} to the given value.
+          self.P{t, k} = P;
+          self.H{t, k} = NaN;
+          % mark U, L and g as stale, P and H as not stale.
+          self.mark_as_stale(t);
+          self.P_is_stale(t) = false;
+          self.H_is_stale(t) = false;
+      end
+
+
       function refresh(self, sys, tau, fields)
       % This function does most of the heavy computing.
       % It should be called _after_ setting _all_ the required *_needed_now fields
@@ -144,7 +155,7 @@ classdef cache < matlab.mixin.Copyable
 
           n_timeslots = size(self.H, 1);
           n_ensemble  = size(self.H, 2);
-          n_controls  = size(sys.B, 1);
+          n_controls  = sys.n_controls();
           
           % computing g may require additional U and L elements, so check that first
           g_recompute_now = self.g_needed_now && self.g_is_stale;
@@ -202,7 +213,7 @@ classdef cache < matlab.mixin.Copyable
               H = sys.A{k};
               for c = 1:n_controls
                   u = fields(t, c);
-                  H = H +u * sys.B{c, k};
+                  H = H +u * sys.B{k, c};
               end
               self.H{t, k} = H;
           end

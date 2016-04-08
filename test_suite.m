@@ -114,7 +114,7 @@ end
 fprintf('%s\n\n', desc)
 initial = eye(size(final));
 
-dyn = dynamo('S gate', initial, final, H, C);
+dyn = dynamo('closed gate', initial, final, H, C);
 dyn.system.set_labels(desc, dim, cl);
 
 

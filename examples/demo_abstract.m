@@ -1,8 +1,8 @@
-function dyn = demo_abstract()
+function dyn = demo_abstract(T)
 % Example: State transfer for an abstract three-level system.
 
 % Robert Zeier 2013
-% Ville Bergholm 2013
+% Ville Bergholm 2013-2014
 
 
 %% define the problem
@@ -18,19 +18,18 @@ C1(2,1) = 1;
 C2 = sparse(3,3);
 C2(2,3) = -1;
 C2(3,2) = 1;
-C = {C1, C2};
 
-cl = {'Omega_p', 'Omega_s'};
+c_labels = {'Omega_p', 'Omega_s'};
 
 % drift operator
-H = sparse(3,3);
-H(2,2) = -1;
+H_drift = sparse(3,3);
+H_drift(2,2) = -1;
 
 final = [0 0 1].';
 initial = [1 0 0].';
 
-dyn = dynamo('abstract vector', initial, final, H, C);
-dyn.system.set_labels(desc, dim, cl);
+dyn = dynamo('abstract vector', initial, final, H_drift, {C1, C2});
+dyn.system.set_labels(desc, dim, c_labels);
 
 dyn.config.error_func = @error_full;
 dyn.config.gradient_func = @gradient_full_finite_diff;
@@ -39,9 +38,13 @@ dyn.config.epsilon = 1e-4;
 
 %% initial controls
 
+if nargin < 1
+    T = 0.5;
+end
+
 % control sequence consists of n_b = 100 bins (first parameter),
 % the time duration (tau) of each bin fixed to 1/n_b time units (second parameter).
-dyn.seq_init(100, 0.5 * [1, 0]);
+dyn.seq_init(100, T * [1, 0]);
 % The second parameter defines the tau limits for each bin: [tau_minimum, tau_delta]
 % so that tau is always between tau_minimum and tau_minimum + tau_delta.
 % You can give an [n_b, 2] -sized array (separate limits for each bin),
@@ -63,7 +66,7 @@ dyn.easy_control(randn(1,2));
 %% optimize
 
 dyn.ui_open();
-dyn.search_BFGS(dyn.full_mask(), struct('Display', 'final', 'plot_interval', 1));
+dyn.search();
 %dyn.analyze();
 %figure; dyn.plot_X();
 %figure; dyn.plot_seq();

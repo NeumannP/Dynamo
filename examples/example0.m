@@ -12,19 +12,19 @@ fprintf('%s\n\n', desc);
 
 J = 2 * [1 1 1];
 C = diag(ones(1, q-1), 1); % topology: linear chain
-H = heisenberg(dim, @(s,a,b) J(s)*C(a,b));
-[C, cl] = control_ops(dim, '1xy');
+H_drift = heisenberg(dim, @(s,a,b) J(s)*C(a,b));
+[H_ctrl, c_labels] = control_ops(dim, '1xy');
 
-final = [0 0 0 1].';
 initial = [1 0 0 0].';
+final = [0 0 0 1].';
 
-dyn = dynamo('S ket', initial, final, H, C);
-dyn.system.set_labels(desc, dim, cl);
+dyn = dynamo('closed ket', initial, final, H_drift, H_ctrl);
+dyn.system.set_labels(desc, dim, c_labels);
 dyn.seq_init(100, 6 * [1, 0]);
 dyn.easy_control([-0.1, 0.05]);
 
 dyn.ui_open();
-dyn.search_BFGS(dyn.full_mask(), struct('Display', 'final', 'plot_interval', 1));
+dyn.search();
 %dyn.analyze();
 %figure; dyn.plot_X();
 %figure; dyn.plot_seq();

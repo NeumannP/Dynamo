@@ -21,6 +21,7 @@ SP = (SX +1i*SY)/2;
 
 n_sites = 3; % actual chain sites
 dim = 2 * ones(1, n_sites+1); % dimension vector: qubits, or spin-1/2 chain
+D = prod(dim); % total system dimension
 target_site = n_sites
 
 % 0: ground, 1: excited state, SP lowers/annihilates
@@ -39,7 +40,8 @@ n_op = a' * a; % == (I-SZ) / 2; % number op
 % om = [1 4 1 0], v = 0.8, G = 1e-2, tr = 6, T = 10
 
 % energy splittings
-omega = [1 4 1 0]
+omega = [ones(1, n_sites), 0];
+omega(2) = 4;
 % site-to-site coupling
 v = 0.8
 % dephasing
@@ -82,9 +84,6 @@ end
 sink = {op_list({{a, target_site; sqrt(2 * transfer_rate) * a', n_sites+1}}, dim)};
 sink{1} = sink{1}(p,p);
 
-% Drift Liouvillian (noise / dissipation)
-L_drift = superop_lindblad(sink) +superop_lindblad(diss) +superop_lindblad(deph);
-
 
 %% drift Hamiltonian
 
@@ -95,6 +94,11 @@ H_drift = heisenberg(dim, @(s,a,b) J(s)*C(a,b))...
   +op_sum(dim, @(k) omega(k) * n_op);
 
 H_drift = H_drift(p,p);
+
+
+%% drift Liouvillian (noise / dissipation)
+
+L_drift = superop_lindblad(sink, H_drift) +superop_lindblad(diss) +superop_lindblad(deph);
 
 
 %% controls
@@ -116,10 +120,10 @@ c_labels = {'D_1', 'D_2', 'D_3'};
 %% initial and final states
 
 % for pure state transfer
-initial = state(prod(dim(2:end)), dim); initial = initial.data; % '10..0'
-final   = state(1, dim); final = final.data; % '0..01'
+initial = zeros(D,1); initial(prod(dim(2:end))+1) = 1; % '10..0'
+final   = zeros(D,1); final(2) = 1;  % '0..01'
 
-dyn = dynamo('SB state overlap', initial(p), final(p), H_drift, H_ctrl, L_drift);
+dyn = dynamo('open state overlap', initial(p), final(p), L_drift, H_ctrl);
 dyn.system.set_labels(desc, st_labels, c_labels);
 
 % try the expensive-but-reliable gradient method
@@ -137,5 +141,5 @@ dyn.easy_control(0.1 * ones(1,n_sites));
 %% now do the actual search
 
 dyn.ui_open();
-dyn.search_BFGS(dyn.full_mask(), struct('Display', 'final', 'plot_interval', 1));
+dyn.search();
 %dyn.analyze();

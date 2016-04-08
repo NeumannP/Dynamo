@@ -13,7 +13,7 @@ if c < 0
     tau_eps = self.seq.tau(t) +self.seq.tau_deriv(t) * epsilon;
     P = expm(tau_eps * self.cache.H{t, k});
 else
-    H_eps = self.cache.H{t, k} +(epsilon * self.seq.fields_deriv(t, c)) * self.system.B{c, k};
+    H_eps = self.cache.H{t, k} +(epsilon * self.seq.fields_deriv(t, c)) * self.system.B{k, c};
     P = expm(self.seq.tau(t) * H_eps);
 end
 

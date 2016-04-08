@@ -2,7 +2,7 @@ function [J] = gradient_NR(self, t, k, c, Q)
 % Exact Jacobian of the Newton-Raphson quality function L
 % with respect to the controls specified in control_mask. Uses eigendecomposition.
 % Returns a matrix.
-
+% FIXME not functional
 
 % compute the eigenvalue factors for the target function
 [v, zeta] = eig_factors(Q, true);

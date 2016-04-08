@@ -11,7 +11,7 @@ if c < 0
     % dP_t/dtau_{t} = H_t P_t = P_t H_t
     ret = 2 * self.seq.tau_deriv(t) * trace_matmul(self.cache.L{t+1, k}, self.cache.H{t, k} * self.cache.U{t+1, k} * self.cache.P{t, k}');
 else
-    dPdu = dPdu_exact(self.cache.H_v{t, k}, self.cache.H_eig_factor{t, k}, self.system.B{c, k});
+    dPdu = dPdu_exact(self.cache.H_v{t, k}, self.cache.H_eig_factor{t, k}, self.system.B{k, c});
     ret = 2 * self.seq.tau(t) * self.seq.fields_deriv(t, c) * ...
           trace_matmul(self.cache.L{t+1, k}, dPdu * self.cache.U{t, k} * self.cache.P{t, k}');
 end

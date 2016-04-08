@@ -1,0 +1,23 @@
+Changelog for DYNAMO - Quantum Dynamic Optimization Package
+
++ added
+- removed
+* changed
+b bugfix
+
+
+1.4.0       in progress
+              * docs: User manual expanded and updated.
+              * dynamo: Stats system can handle several optimization runs.
+                Interrupted runs can be continued automatically.
+              b Always returns the reason why the optimization ended.
+              + dynamo/plot_pop, dynamo/plot_eig, dynamo/plot_stats: New plotting functions.
+              + dynamo/shake: Randomly perturbs the control sequence, can be used to get out of local optima.
+              + dynamo/split: Refines the control sequence by splitting given bins into several.
+              + dynamo/gradient_full_exact: Exact gradient using the auxiliary matrix technique.
+              + test: Unit tests for DYNAMO.
+              + test_rand_problem: Generates random optimization problems for testing/benchmarking purposes.
+              + test_benchmark: Measures the walltime required to compute different errors and gradients.
+              + examples/demo_coop_gates
+              b dynamo/gradient_setup: gradient_g_mixed_exact provided with wrong *_needed_now.
+              b qsystem.B_is_Hamiltonian was not set up properly, resulting in a spurious warning.

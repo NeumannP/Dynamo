@@ -11,17 +11,17 @@ fprintf('%s\n\n', desc);
 
 J = 2 * [1 1 1]; % Heisenberg interaction
 C = diag(ones(1, q-1), 1); % topology: linear chain
-H = heisenberg(dim, @(s,a,b) J(s)*C(a,b));
-[C, cl] = control_ops(dim, '1xy');
+H_drift = heisenberg(dim, @(s,a,b) J(s)*C(a,b));
+[H_ctrl, c_labels] = control_ops(dim, '1xy');
 
 final = qft(q);
 initial = eye(size(final));
 
-dyn = dynamo('S gate', initial, final, H, C);
-dyn.system.set_labels(desc, dim, cl);
+dyn = dynamo('closed gate', initial, final, H_drift, H_ctrl);
+dyn.system.set_labels(desc, dim, c_labels);
 dyn.seq_init(100, 16 * [1, 0]);
 dyn.easy_control(0.1 * ones(1,2));
 
 dyn.ui_open();
-dyn.search_BFGS(dyn.full_mask(), struct('Display', 'final', 'plot_interval', 1));
+dyn.search();
 %dyn.analyze();

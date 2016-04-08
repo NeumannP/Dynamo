@@ -20,7 +20,7 @@ function [d, direction] = test_gradient(d, direction)
 %  1st order approximations turn to O(s) scaling almost immediately
 %  For basic finite difference methods, \vec{grad_error} should be proportional to epsilon.
     
-% Ville Bergholm 2011-2013
+% Ville Bergholm 2011-2015
 
 
 %randseed(seed);
@@ -36,8 +36,11 @@ end
 
 %% choose an error function and a compatible gradient
 
-ff = 'tr'
+ff = 'full'
 gg = 'exact'
+
+% for the finite_diff methods only
+d.config.epsilon = 1e-3;
 
 ttt = ['error\_', ff, ', gradient\_', gg];
 switch ff
@@ -69,6 +72,8 @@ switch ff
   case 'full'
     d.config.error_func = @error_full;
     switch gg
+      case 'exact'
+        d.config.gradient_func = @gradient_full_exact;
       case '1st'
         d.config.gradient_func = @gradient_full_1st_order;
       case 'diff'
@@ -82,7 +87,6 @@ switch ff
     ttt = '';
 end
 
-d.config.epsilon = 1e-3;
 
 
 %% test the accuracy
@@ -93,7 +97,7 @@ mask = d.full_mask(true);
 x0 = d.seq.get(mask);
 
 % error function and its gradient at x0
-[err, grad] = d.error(mask);
+[err, grad] = d.compute_error(mask);
 
 if nargin < 2
     % random unit direction in parameter space
@@ -117,7 +121,7 @@ for k=1:length(s)
     
     % f(x0+delta)
     d.update_controls(x0 + delta, mask);
-    accurate(k) = d.error();
+    accurate(k) = d.compute_error();
 end
 
 % restore initial controls

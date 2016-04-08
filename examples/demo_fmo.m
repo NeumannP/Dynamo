@@ -1,15 +1,12 @@
-function dyn = fmo(T)
-% Simulating exciton transport in the FMO complex.
+function dyn = demo_fmo(T)
+% Example: Optimizing exciton transport in the FMO complex.
 
 % Model from M.B. Plenio and S.F. Huelga, "Dephasing-assisted transport: quantum networks and biomolecules", NJP 10, 113019 (2008).
 % Dipole moments etc. from F.Caruso et al., "Coherent open-loop optimal control of light-harvesting dynamics", arXiv:1103.0929v1.
-    
-% Ville Bergholm 2012
 
-global qit
-%randseed(825);
+% Ville Bergholm 2012-2014
 
-    
+
 SX = [0 1; 1 0];
 SY = [0 -1i; 1i 0];
 SZ = [1 0; 0 -1];
@@ -43,6 +40,8 @@ mask = [1, 1+2.^(n_sites:-1:0)]; % states to keep: zero, single exciton at each 
 
 
 %% parameters
+
+qit.c = 299792458;       % speed of light in vacuum, m/s
 
 % The unit for energy is 2 pi hbar c 100/m,
 % and the unit for time (2 pi c 100/m)^{-1} \approx 5.31 ps.
@@ -104,9 +103,6 @@ end
 sink = {op_list({{a, 3; sqrt(2 * transfer_rate) * a', n_sites+1}}, dim)};
 sink{1} = clip(sink{1});
 
-% Drift Liouvillian (noise / dissipation)
-L_drift = superop_lindblad(sink) +superop_lindblad(diss) +superop_lindblad(deph);
-
 
 %% drift Hamiltonian
 
@@ -139,7 +135,7 @@ mu = ...
    -1.619,  2.850, -2.584];
 
 % times maximum electric field strength in (energy unit)/D
-mu = mu * 15; % 
+mu = mu * 15; %
 
 elseif n_sites == 8
 % 8-site Hamiltonian from Schmidt am Busch et al., J. Phys. Chem. Lett. 2, 93 (2011).
@@ -168,6 +164,11 @@ end
 H_FMO = H_FMO + triu(H_FMO, 1)'
 H_FMO = blkdiag(0, H_FMO, 0); % add loss state and sink
 H_drift = U' * H_FMO * U; % hybrid basis
+
+
+%% drift Liouvillian (noise / dissipation)
+
+L_drift = superop_lindblad(sink, H_drift) +superop_lindblad(diss) +superop_lindblad(deph);
 
 
 %% controls
@@ -201,8 +202,8 @@ for k = 1:3
         temp_r = temp_r -mu(s,k) * op_list({{SX, s}}, dim);
         temp_i = temp_i -mu(s,k) * op_list({{SY, s}}, dim);
     end
-    H_ctrl{end+1} = temp_r(p,p); 
-    H_ctrl{end+1} = temp_i(p,p); 
+    H_ctrl{end+1} = temp_r(p,p);
+    H_ctrl{end+1} = temp_i(p,p);
 end
 control_type = '......';
 control_par = {};
@@ -213,13 +214,13 @@ end
 %% initial and final states
 
 % pure state transfer
-initial = state(initial, dim); initial = initial.data; initial = U' * initial(mask);
-final   = state(final, dim);   final   = final.data;   final   = U' * final(mask);
+initial = to_state(initial, dim); initial = U' * initial(mask);
+final   = to_state(final, dim);   final   = U' * final(mask);
 
 
 %% set up Dynamo
 
-dyn = dynamo('SB state overlap', initial, final, H_drift, H_ctrl, L_drift);
+dyn = dynamo('open state overlap', initial, final, L_drift, H_ctrl);
 dyn.system.set_labels(desc, st_labels, c_labels);
 
 % use the expensive-but-reliable gradient method
@@ -259,13 +260,13 @@ dyn.easy_control(1e-3 * f7_5_plenio, 0.0, 0, false);
 %% now do the actual search
 
 % "before" plot
-figure(); dyn.plot_X(gca(), true, 0.001);
+figure(); dyn.plot_X(0.001);
 
 dyn.ui_open();
-dyn.search_BFGS(dyn.full_mask(), struct('Display', 'final', 'plot_interval', 1));
+dyn.search();
 
 % "after" plot
-figure(); dyn.plot_X(gca(), true, 0.001);
+figure(); dyn.plot_X(0.001);
 return
 
 
@@ -273,4 +274,21 @@ function safe_x = clip(safe_x)
 % Apply the subspace mask and a possible basis transformation U to an operator.
   safe_x  = U' * safe_x(mask,mask) * U;
 end
+end
+
+
+function s = to_state(s, dim)
+% Returns the state vector corresponding to the ket label string s.
+
+  % calculate the linear index
+  n = length(dim);
+  s = s - '0';
+  if any(s >= dim)
+      error('Invalid basis ket.')
+  end
+  muls = fliplr(circshift(cumprod(fliplr(dim)), [0 1]));
+  muls(end) = 1;
+  ind = muls*s.';
+  s = zeros(prod(dim), 1);
+  s(ind+1) = 1; % MATLAB indexing starts at 1
 end

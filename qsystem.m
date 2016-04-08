@@ -51,7 +51,7 @@ classdef qsystem < matlab.mixin.Copyable
                   if s(1) == 1
                       ret = @(k,c) C{1,c};  % same for every ensemble member
                   elseif s(1) == n_ensemble
-                      ret = @(k,c) C(k,c);
+                      ret = @(k,c) C{k,c};
                   else
                       error('Number of rows in cell array does not match n_ensemble.')
                   end

@@ -20,7 +20,7 @@ initial = eye(size(final));
 dyn = dynamo('closed gate', initial, final, H_drift, H_ctrl);
 dyn.system.set_labels(desc, dim, c_labels);
 dyn.seq_init(100, 16 * [1, 0]);
-dyn.easy_control(0.1 * ones(1,2));
+dyn.set_controls(0.1);
 
 dyn.ui_open();
 dyn.search();

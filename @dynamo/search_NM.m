@@ -7,7 +7,7 @@ user_options = self.init_opt(control_mask, varargin{:});
 
 % define the optimization problem
 problem.objective = @(x) goal_function_wrapper(self, x);
-problem.x0 = self.seq.get(self.opt.control_mask);
+problem.x0 = self.seq.get_raw(self.opt.control_mask);
 problem.solver = 'fminsearch';
 
 % default options for fminsearch

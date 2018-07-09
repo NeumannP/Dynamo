@@ -8,7 +8,7 @@ classdef dynamo < matlab.mixin.Copyable
 % Governing equation: \dot(X)(t) = (A +\sum_k u_k(t) B_k) X(t) = G(t) X(t)
     
 % Shai Machnes   2010-2011
-% Ville Bergholm 2011-2015
+% Ville Bergholm 2011-2017
 
 
   properties
@@ -26,7 +26,7 @@ classdef dynamo < matlab.mixin.Copyable
   methods (Static)
     function ret = version()
     % Returns the current DYNAMO version.
-        ret = '1.4.0alpha4';
+        ret = '1.4.0+';
     end
 
 
@@ -58,14 +58,36 @@ classdef dynamo < matlab.mixin.Copyable
   end
   
   methods
-    function self = dynamo(task, initial, final, A, B, weight)
+    function self = dynamo(task, initial, final, A, B, weight, n_controls)
     % Constructor
 
         if nargin < 6
             % ensemble weights
             weight = 1;
         end
-        
+        if nargin < 7
+            if iscell(B)
+                if iscell(B{1})
+                    % TEST TODO: allow nested cell vectors for the
+                    % Python interface (which cannot do cell arrays).
+                    ne = length(B);
+                    nc = length(B{1});
+                    BB = cell(ne, nc);
+                    for k=1:ne
+                        if length(B{k}) ~= nc
+                            error('Each ensemble member must have the same number of controls.')
+                        end
+                        for c=1:nc
+                            BB{k, c} = B{k}{c};
+                        end
+                    end
+                    B = BB;
+                end
+                n_controls = size(B, 2);
+            else
+                error('If B is not a cell array, you must input the number of controls separately.')
+            end
+        end
         task = lower(task);
 
         %% Some basic data provenance
@@ -77,27 +99,35 @@ classdef dynamo < matlab.mixin.Copyable
         temp = datenum('1970', 'yyyy') +java.lang.System.currentTimeMillis / 86400e3;
         config.date_UTC = datestr(temp, 31);
         
+        %% Configuration defaults
+
         config.task = task;
-        config.UL_hack = false;
-        
-        [system_str, rem] = strtok(task);
-        [task_str, rem] = strtok(rem);
-        [extra_str, rem] = strtok(rem);
-          
+        config.nonprojective_error = false;  % switch for error_abs.m
+        config.frobenius_like_error = true;  % error can be interpreted as |A-B|_F^2 / (2 * |A|_F^2)
+        config.epsilon  = 2e-8;   % finite differencing: approximately sqrt(eps(double))
+        config.UL_mixed = false;  % HACK: mixed states in a closed system
 
         %% Description of the physical system
 
         input_dim  = [size(initial, 1), size(final, 1)];
         input_rank = [size(initial, 2), size(final, 2)]; % check the validity of the inputs
-        sys = qsystem(weight, input_dim, size(B, 2)); % FIXME assumes B is a cell array
-        
+        sys = qsystem(weight, input_dim, n_controls);
+
+        %% Optimization task
+
+        [system_str, rem] = strtok(task);
+        [task_str, rem] = strtok(rem);
+        [extra_str, rem] = strtok(rem);
+
         out = 'Target operation:';
         switch system_str
           case 'abstract'
             %% No transformations done on the A and B operators. 
             % the generator may be anything, hence error_full
-            out = strcat(out, ' abstract');
+            config.dP = 'fd';
+            config.error_func = @error_full;
             
+            out = strcat(out, ' abstract');
             if strcmp(task_str, 'vector')
                 out = strcat(out, ' vector transfer\n');
                 if any(input_rank ~= 1)
@@ -110,14 +140,14 @@ classdef dynamo < matlab.mixin.Copyable
                 end
             end
             sys.abstract_representation(initial, final, A, B);
-            config.error_func = @error_full;
-            config.gradient_func = @gradient_full_finite_diff;
-            config.epsilon = 1e-4;
-            
-          
+
+
           case {'closed'}
             %% Closed system
             % the generator is always Hermitian and thus normal => use exact gradient
+            config.dP = 'eig';
+            config.error_func = @error_abs;
+
             switch task_str
               case 'state'
                 % TEST more efficient Hilbert space implementation
@@ -126,14 +156,21 @@ classdef dynamo < matlab.mixin.Copyable
                     error('Either the initial or the final state should be a state operator.')
                 end
                 sys.hilbert_representation(to_op(initial), to_op(final), A, B, false);
-                config.f_max = (sys.norm2 +norm2(sys.X_initial)) / 2;
-                config.error_func = @error_real;
-                config.gradient_func = @gradient_g_mixed_exact;
-                config.UL_hack = true;
-                
-              
+                config.UL_mixed = true;
+                config.nonprojective_error = true;
+                if strcmp(extra_str, 'overlap')
+                    % overlap error function
+                    % NOTE simpler error function and gradient, but final state needs to be pure
+                    out = strcat(out, ' (overlap)');
+                    config.f_max = 1;
+                else
+                    % full distance error function
+                    config.f_max = (sys.norm2 +norm2(sys.X_initial)) / 2;
+                end
+
               case {'ket', 'gate'}
-                if strcmp(task_str, 'ket')
+                task_is_ket = strcmp(task_str, 'ket');
+                if task_is_ket
                     out = strcat(out, ' pure state transfer');
                     if any(input_rank ~= 1)
                         error('Initial and final states should be normalized kets.')
@@ -146,18 +183,27 @@ classdef dynamo < matlab.mixin.Copyable
                 end
                 sys.hilbert_representation(initial, final, A, B, false);
                 config.f_max = sys.norm2;
-
-                if strcmp(extra_str, 'phase')
+                switch extra_str
+                  case 'phase'
                     out = strcat(out, ' (with global phase (NOTE: unphysical!))');
-                    config.error_func = @error_real;
-                else
+                    config.nonprojective_error = true;
+                  case 'subspace'
+                    if task_is_ket
+                        error('Subspace option only available for gates.')
+                    end
+                    out = strcat(out, sprintf(' (on a %d-dimensional subspace)', round(sys.norm2)));
+                  otherwise
                     out = strcat(out, ' (ignoring global phase)');
-                    config.error_func = @error_abs;
                 end
-                config.gradient_func = @gradient_g_exact;
 
-                
               % system S + environment E
+              case 'state_partial'
+                error('unfinished, gradient is complicated')
+                out = strcat(out, ' partial mixed state transfer (on S)');
+                sys.hilbert_representation(to_op(initial), to_op(final), A, B, false);
+                config.error_func = @error_full;
+                config.UL_mixed = true;
+
               case 'gate_partial'
                 out = strcat(out, ' partial unitary gate (on S)');
                 if any(input_rank == 1)
@@ -166,21 +212,18 @@ classdef dynamo < matlab.mixin.Copyable
                 sys.hilbert_representation(initial, final, A, B, true);
                 config.f_max = sys.norm2;
                 config.error_func = @error_tr;
-                config.gradient_func = @gradient_tr_exact;
-                
-              case 'state_partial'
-                error('Not implemented yet.')
                 
               otherwise
                 error('Unknown task.')
             end
-            
             out = strcat(out, ' in a closed system.\n');
 
             
           case {'open'}
             %% Open system with a Markovian bath
             % The generator isn't usually normal, so we cannot use the exact gradient method
+            config.dP = 'fd';
+            config.error_func = @error_full;
 
             switch task_str
               case 'state'
@@ -190,13 +233,10 @@ classdef dynamo < matlab.mixin.Copyable
                     % overlap error function
                     % NOTE simpler error function and gradient, but final state needs to be pure
                     out = strcat(out, ' (overlap)');
-                    config.error_func = @error_real;
-                    config.gradient_func = @gradient_g_1st_order;
-                    config.f_max = sys.norm2;
+                    config.error_func = @error_abs;
+                    config.f_max = 1;
                 else
                     % full distance error function
-                    config.error_func = @error_full;
-                    config.gradient_func = @gradient_full_1st_order;
                 end
                 
               case 'gate'
@@ -205,16 +245,11 @@ classdef dynamo < matlab.mixin.Copyable
                     error('Initial and final states should be unitary operators.')
                 end
                 sys.vec_representation(initial, final, A, B, false);
-                config.error_func = @error_full;
-                config.gradient_func = @gradient_full_1st_order;
-
 
               % system S + environment E
               case 'state_partial'
                 out = strcat(out, ' partial state transfer (on S)');
                 sys.vec_representation(initial, final, A, B, true);
-                config.error_func = @error_full;
-                config.gradient_func = @gradient_full_1st_order;
                 
               case 'gate_partial'
                 error('Not implemented yet.')
@@ -223,17 +258,30 @@ classdef dynamo < matlab.mixin.Copyable
                 % TODO arbitrary quantum maps
                 error('Unknown task.')
             end
-            
             out = strcat(out, ' in an open system under Markovian noise.\n');
 
 
           otherwise
             error('Unknown system specification.')
         end
+
+        switch extra_str
+          case 'overlap'
+            if input_rank(2) ~= 1 || abs(sys.norm2 -1) > 1e-6
+                error('Overlap error functions are only available if the target state is a normalized ket.')
+            end
+            config.nonprojective_error = true;
+            config.frobenius_like_error = false;  % cannot be interpreted as Frobenius errors
+          otherwise
+        end
+
         fprintf(out);
-        if sys.liouville
+        switch sys.type
+          case 'liouville'
             fprintf('Liouville space dimension: %d\n', sys.dim^2);
-        else
+          case 'abstract'
+            fprintf('Vector space dimension: %d\n', sys.dim);
+          otherwise
             fprintf('Hilbert space dimension: %d\n', sys.dim);
         end
         n_ensemble = sys.n_ensemble();
@@ -268,14 +316,8 @@ classdef dynamo < matlab.mixin.Copyable
             L_end = self.system.X_final'; % L: X_final' propagated backwards
         end
 
-        % exact gradient? we need the eigendecomposition data.
-        temp = self.config.gradient_func;
-        use_eig = isequal(temp, @gradient_g_exact)...
-                  || isequal(temp, @gradient_g_mixed_exact)...
-                  || isequal(temp, @gradient_tr_exact);
-
-        % UL_hack: mixed states in a closed system
-        self.cache = cache(self.seq.n_timeslots(), self.system.n_ensemble(), U_start, L_end, use_eig, self.config.UL_hack);
+        % UL_mixed: mixed states in a closed system
+        self.cache = cache(self.seq.n_timeslots(), self.system.n_ensemble(), U_start, L_end, self.config.dP, self.config.UL_mixed);
     end
 
 
@@ -291,6 +333,17 @@ classdef dynamo < matlab.mixin.Copyable
         self.cache_init();
     end
 
+    function mask = set_state_transform(self, t, k, P)
+    % Replaces the propagator for time slice t with an arbitrary state transform,
+    % e.g. a subspace projector.
+        self.cache.set_P(t, k, P);
+        self.seq.raw(t, 1:end-1) = pi/2;  % set the phantom controls to zero to make the sequence look nicer
+        self.seq.transform();
+        % do not update the controls so as to not overwrite P_xy
+        % TODO better solution needed
+        mask = self.full_mask(true);
+        mask(t,:) = false;
+    end
 
     function mask = full_mask(self, optimize_tau)
     % Returns a full control mask.
@@ -315,12 +368,12 @@ classdef dynamo < matlab.mixin.Copyable
     end
 
 
-    function [err_out, grad_out] = compute_error(self, control_mask)
+    function [err_out, grad_out] = compute_error(self, control_mask, ensemble_idx)
     % Returns the error (and its gradient) at current control values.
     % This is where we sum over the system ensemble if necessary.
 
         % gradient requires a control mask
-        if nargout == 2 && nargin < 2
+        if nargout == 2 && (nargin < 2 || isempty(control_mask))
             control_mask = self.full_mask(false);
         end
 
@@ -335,7 +388,7 @@ classdef dynamo < matlab.mixin.Copyable
             % _full:
             self.cache.g_needed_now = 2; % HACK ln37ae983e
         else
-            % _tr, _abs, _real:
+            % _tr, _abs:
             self.cache.g_needed_now = true;
         end
         
@@ -343,15 +396,23 @@ classdef dynamo < matlab.mixin.Copyable
 
         err_out  = 0;
         grad_out = 0;
-        % loop over the ensemble
         n_ensemble = self.system.n_ensemble();
-        for k = 1:n_ensemble
+        if nargin < 3
+            % weighted average over the ensemble
+            pick = 1:n_ensemble;
+            weight = self.system.weight;
+        else
+            % just one ensemble member
+            pick = ensemble_idx;
+            weight = ones(1, n_ensemble);
+        end
+        for k = pick
             %% (real) normalized error
             err = self.config.error_func(self, k) / self.system.norm2;
             fprintf('Error (%d): %g\n', k, err);
 
             % weighted ensemble average
-            err_out = err_out +self.system.weight(k) * err;
+            err_out = err_out +weight(k) * err;
             if nargout < 2
                 % just the error
                 continue
@@ -372,24 +433,31 @@ classdef dynamo < matlab.mixin.Copyable
                 if c == tau_c
                     c = -1; % denotes a tau control
                 end
-                grad(z) = self.config.gradient_func(self, t, k, c);
+                grad(z) = self.config.error_func(self, k, t, c);
             end
             % real, normalized, weighted gradient
-            grad_out = grad_out +(self.system.weight(k) / self.system.norm2) * real(grad);
+            grad_out = grad_out +(weight(k) / self.system.norm2) * grad;
         end
-        %fprintf('Error: %g\n', err_out);
     end
 
-    
+    function [err] = frobenius_error(self, varargin)
+    % Returns the Frobenius norm error at current control values.
+    % Same input options as with the dynamo.X() method.
+    % NOTE that this function does not return a meaningful result for all optimization tasks, due to global phase.
+
+        err = norm(self.X(varargin{:}) -self.system.X_final, 'fro');
+    end
+
+
     function update_controls(self, raw, control_mask)
-    % Updates selected controls.
+    % Updates selected raw controls.
     %
     %  raw: vector of raw, untransformed control values, control_mask: corresponding mask.
     %
     %  Updates control values for which control_mask is true.
     %  Makes the changed timeslots and stuff that depends on them stale.
 
-        old = self.seq.get();
+        old = self.seq.get_raw();
          
         if nargin < 3 || isempty(control_mask)
             control_mask = true(size(old)); % full mask
@@ -404,12 +472,47 @@ classdef dynamo < matlab.mixin.Copyable
 
         if any(changed_t_mask)
             % actually update the controls
-            self.seq.set(new);
+            self.seq.set_raw(new);
             self.cache.mark_as_stale(changed_t_mask);
         end
     end
 
-    
+
+    function set_controls(self, fields, tau)
+    % Sets the controls to the given values.
+    % If the requested values are incompatible with the current
+    % control transforms, fails with an error message.
+
+        n_timeslots = self.seq.n_timeslots();
+        n_controls = self.seq.n_controls();
+
+        % reverse transform into raw control parameters
+        if isempty(fields)
+            % use old values
+            fields = self.seq.raw(:,1:end-1);
+        else
+            if isscalar(fields)
+                % set all fields to the same value
+                fields = fields * ones(1, n_controls);
+            end
+            fields = self.seq.inv_transform(fields);
+            if size(fields, 1) == 1
+                % set all timeslots to the same values
+                fields = ones(n_timeslots, 1) * fields;
+            end
+        end
+        if nargin < 3 || isempty(tau)
+            % use old values
+            tau = self.seq.raw(:,end);
+        else
+            tau = self.seq.inv_transform_tau(tau);
+        end
+
+        self.seq.set_raw([fields, tau]);
+        self.cache.invalidate(); % flush the entire cache
+    end
+
+
     function cache_refresh(self)
     % Performs all the queued computations using the cache subsystem.
         self.cache.refresh(self.system, self.seq.tau, self.seq.fields);
@@ -473,10 +576,23 @@ classdef dynamo < matlab.mixin.Copyable
     function plot_stats(self, stat, ax)
     % Plots the optimization stats (like the error) as a function of wall time.
 
-        fp = @plot;
+        [stat, tail] = strtok(stat);
+        [pt, tail] = strtok(tail);
+        if isempty(tail)
+            marker = '-';
+        else
+            marker = tail;
+        end
+        % plot type
+        switch strtok(pt)
+          case 'semilog'
+            fp = @semilogy;
+          otherwise
+            fp = @plot;
+        end
         switch stat
           case 'error'
-            fp = @(a,t,x,m) semilogy(a, t, abs(x), m);
+            fp = @(a,t,x,m) fp(a, t, abs(x), m);
           case 'control_integral'
           otherwise
             error('Unknown stat.')
@@ -485,7 +601,7 @@ classdef dynamo < matlab.mixin.Copyable
         offset = 0;
         for k=1:length(self.stats)
             temp = getfield(self.stats{k}, stat);
-            fp(ax, self.stats{k}.wall_time+offset, temp, '-');
+            fp(ax, self.stats{k}.wall_time+offset, temp, marker);
             hold(ax, 'on');
             fp(ax, self.stats{k}.wall_time(end)+offset, temp(end), 'o');
             offset = offset +self.stats{k}.wall_time(end);
@@ -501,12 +617,14 @@ classdef dynamo < matlab.mixin.Copyable
     % control sequence.
 
         % what should we plot?
-        if self.system.liouville
-            plot_func = @prob_stateop;
-        else
-            plot_func = @prob_ket;
-        end
-
+         switch self.system.type
+           case 'liouville'
+             plot_func = @prob_stateop;
+           case 'abstract'
+             plot_func = @(x) x;
+           otherwise
+             plot_func = @prob_ket;
+         end
         self.plot_X(plot_func, varargin{:});
 
         % NOTE: due to the horrible scoping rules of MATLAB, we use small x
@@ -527,12 +645,12 @@ classdef dynamo < matlab.mixin.Copyable
     function plot_eig(self, varargin)
 
         % what should we plot?
-        if self.system.liouville
+        switch self.system.type
+          case 'liouville'
             plot_func = @eig_stateop;
-        else
+          otherwise
             error('System closed, eigenvalues are constant.')
         end
-
         self.plot_X(plot_func, varargin{:});
 
         function p = eig_stateop(x)
@@ -543,14 +661,12 @@ classdef dynamo < matlab.mixin.Copyable
         end
     end
 
-    function plot_X(self, plot_func, dt, k, ax, full_plot)
-    % Plots the evolution of the initial system as a function of
-    % time under the current control sequence.
+    function plot_X(self, ev_func, dt, k, ax, full_plot)
+    % Evaluates ev_func on the system state as a function of
+    % time under the current control sequence, plots the result.
     % dt, if given, is the timestep.
     % k is an optional ensemble index.
     % ax are the set of axes the plot goes into.
-    % TODO for now it only handles kets and state ops
-
         if nargin < 6
             full_plot = true;
         if nargin < 5
@@ -558,15 +674,12 @@ classdef dynamo < matlab.mixin.Copyable
         if nargin < 4
             k = 1; % TODO should match the choice in X()
         if nargin < 3
-            dt = []; % one plot point per bin
+            dt = [];
         end
         end
         end
         end
-
-        n_timeslots = self.seq.n_timeslots();
-        n_ensemble  = self.system.n_ensemble();
-
+        
         if full_plot
             % things that don't change and aren't deleted by cla
             set_plotstyle(ax);
@@ -582,17 +695,38 @@ classdef dynamo < matlab.mixin.Copyable
             %cla(ax);
         end
 
+        [res, t] = self.evaluate_X(ev_func, dt, k);
+        plot(ax, t, res);
+        %axis(ax, [0, t(end), 0, 1]);
+        legend(self.system.state_labels, 'interpreter', 'latex');
+    end
+
+    function [res, t] = evaluate_X(self, ev_func, dt, k)
+    % Evaluates ev_func on the system state as a function of
+    % time under the current control sequence.
+    % dt, if given, is the timestep.
+    % k is an optional ensemble index.
+
+        if nargin < 4
+            k = 1; % TODO should match the choice in X()
+        if nargin < 3
+            dt = []; % one point per bin
+        end
+        end
+        n_timeslots = self.seq.n_timeslots();
+        n_ensemble  = self.system.n_ensemble();
+        res = [];
         if isempty(dt)
-            % one plot point per timeslot
+            % one point per timeslot
             for j = 0:n_timeslots
-                res(j+1, :) = plot_func(self.X(j, k));
+                res(j+1, :) = ev_func(self.X(j, k));
             end
             t = [0; cumsum(self.seq.tau)];
         else
-            % use the given dt for plotting
+            % use the given dt
             t = [0];
             X = self.X(0, k);
-            res(1, :) = plot_func(X);
+            res(1, :) = ev_func(X);
 
             for j = 1:n_timeslots
                 X_end = self.X(j, k); % make sure the cache is up-to-date
@@ -603,24 +737,34 @@ classdef dynamo < matlab.mixin.Copyable
                 step = tau / n_steps;
                 P = expm(step * G);
                 for q = 1:n_steps
-                    X = P * X;
-                    res(end+1, :) = plot_func(X);
+                    if self.config.UL_mixed
+                        X = P * X * P';
+                    else
+                        X = P * X;
+                    end
+                    res(end+1, :) = ev_func(X);
                 end
                 temp = t(end);
                 t = [t, linspace(temp+step, temp+tau, n_steps)];
                 X = X_end; % stability...
             end
         end
-        plot(ax, t, res);
-        axis(ax, [0, t(end), 0, 1]);
-        legend(self.system.state_labels, 'interpreter', 'latex');
     end
 
-    function shake(self, rel_change)
+    function shake(self, rel_change, abs_change, t_dependent)
     % Makes a small random perturbation to the control sequence, can be used
     % to shake the system out of a local optimum.
     % Does not touch the tau values.
-        self.seq.shake(rel_change);
+        if nargin < 4
+            t_dependent = false;
+        end
+        if nargin < 3
+            abs_change = 0;
+        end
+        if nargin < 2
+            rel_change = 0.1;
+        end
+        self.seq.shake(rel_change, abs_change, t_dependent);
         self.cache.invalidate(); % flush the entire cache
     end
 

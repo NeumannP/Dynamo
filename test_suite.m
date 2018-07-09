@@ -106,6 +106,15 @@ else
     C = {J{3}, J{1}};
     cl = {'J_z', 'J_x'};
     final = rand_U(dim);
+
+  case 24
+    % simplest possible problem
+    dim = 2;
+    desc = 'One qubit, X control.';
+    H = SZ;
+    C = {SX};
+    cl = 'X';
+    final = SX;  % NOT gate
     
   otherwise
     error('Unknown problem.');
@@ -121,14 +130,14 @@ dyn.system.set_labels(desc, dim, cl);
 %% Initial control sequence
 
 timeslots = [30, 40, 128, 64, 120, 140, 128, 128, 64, 300, 300, 64,...
-             128, 128, 40, 64, 1000, 1000, 300, 64, 128, 100, 50];
+             128, 128, 40, 64, 1000, 1000, 300, 64, 128, 100, 50, 2];
 T = [2, 2, 3, 4, 6, 7, 10, 12, 20, 15, 20, 25,...
-     7, 12, 2, 5, 125, 150, 30, 15, 40, 15, 5];
+     7, 12, 2, 5, 125, 150, 30, 15, 40, 15, 5, 2];
 
-dyn.seq_init(timeslots(p), T(p) * [0.5, 1.5]);
+dyn.seq_init(timeslots(p), T(p) * [0.5, 1.0]);
 
 % Set up random initial controls.
-dyn.easy_control([]);
+dyn.shake(0, 1, true);
 end
 
 

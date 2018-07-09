@@ -18,10 +18,10 @@ if isempty(control_mask)
 else
     % default termination conditions and other options
     self.opt.options = struct(...
-        'error_goal',        0.5 * (1e-3)^2 / self.system.norm2,...
-        'max_evals',         1e10,...
+        'error_goal',        0.5 * (1e-4)^2 / self.system.norm2,...
+        'max_evals',         1e6,...
         'max_walltime',      1800,...
-        'max_cputime',       5e5,...
+        'max_cputime',       1e6,...
         'min_gradient_norm', 1e-20,...
         'plot_interval',     1);   % how often should we plot intermediate results?
     self.opt.matlab_options = struct();
@@ -51,6 +51,15 @@ obj_func = @(x) goal_and_gradient_function_wrapper(self, x);
 
 self.stats{end+1} = self.opt;
 
+
+%% termination reason
+
+if self.opt.matlab_exitflag == -1
+    % term_reason comes from monitor_func
+else
+    % terminated by optimizer
+    self.opt.term_reason = self.opt.matlab_output.message;
+end
 term_reason = self.opt.term_reason;
 end
 
@@ -63,29 +72,4 @@ function [err, grad] = goal_and_gradient_function_wrapper(self, x)
     self.update_controls(x, self.opt.control_mask);
     [err, grad] = self.compute_error(self.opt.control_mask);
     self.opt.last_grad_norm = sqrt(sum(sum(grad .* grad)));
-end
-
-
-function [out, unused] = apply_options(defaults, opts, only_existing)
-% MATLAB-style options struct processing.
-% Applies the options in the struct 'opts' to the struct 'defaults'.
-% Returns the updated struct, and the struct of options that could not be parsed.
-
-    % fields in opts
-    names = fieldnames(opts);
-
-    if only_existing
-        % logical array: are the corresponding fields present in defaults?
-        present = isfield(defaults, names);
-    else
-        present = true(size(names));
-    end
-
-    % could not find a function for doing this
-    out = defaults;
-    for f = names(present).'
-        out = setfield(out, f{1}, getfield(opts, f{1}));
-    end
-    % remove the fields we just used from opts
-    unused = rmfield(opts, names(present));
 end

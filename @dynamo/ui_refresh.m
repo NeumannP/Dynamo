@@ -24,11 +24,17 @@ function ui_refresh(self, full_plot, err)
         title(ax, self.system.description);
     end
     if nargin == 3
-        % TODO FIXME plot consistent Frobenius error
-        %err = sqrt(2 * err * self.system.norm2);
-        text(0.05, 0.9, sprintf('Error: %6.6g', err), 'Units','normalized',...
+        if self.config.frobenius_like_error
+            % plot consistent Frobenius norm error
+            err = sqrt(2 * self.system.norm2 * err);
+            str = 'Frobenius norm';
+        else
+            % currently overlap errors are the only ones that are
+            % incommensurate with Frobenius norm errors
+            str = 'Overlap';
+        end
+        text(0.05, 0.9, sprintf('%s error: %6.6g', str, err), 'Units','normalized',...
              'FontSize',18, 'BackgroundColor',[.8 .8 1])
     end
-
     drawnow();
 end

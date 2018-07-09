@@ -123,10 +123,10 @@ n_bins = 100;
 
 dyn = dynamo(task, ini, fin, H_drift, H_ctrl);
 dyn.system.set_labels(desc, dim, c_labels);
-dyn.seq_init(n_bins, T * [1, 0]); %, control_type, control_par);
+dyn.seq_init(n_bins, T * [0.5, 1.5]); %, control_type, control_par);
 
 % random, constant initial controls
-dyn.easy_control(0.1 * randn(1, n_controls));
+dyn.set_controls(0.1 * randn(1, n_controls));
 
 %dyn.ui_open();
 %dyn.search(dyn.full_mask(false));

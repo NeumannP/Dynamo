@@ -17,7 +17,7 @@ TODO list for Dynamo 2
          *  unit tests
            *  the same unitary (closed) optimization problem should yield a similar solution in both "closed" and "open" modes
            *  the same unitary sequence must return the same error in both "closed" and "open" modes
-         *  script that runs all the demos (to make sure they still run!)
+        (*)  script that runs all the demos (to make sure they still run!)
 
 2. Minimal benchmarking framework
       1. Allow user to easily compare several algorithms for a given problem
@@ -43,7 +43,6 @@ TODO list for Dynamo 2
 
 5. Additional documentation
      (1) Inline in the code
-           (*) Modify some variable names to be self-documenting
      (2) At function headers so Matlab's "help" gives more meaningful results
       3. Wiki
       4. Update README.txt
@@ -52,18 +51,21 @@ TODO list for Dynamo 2
      (7) Bibliography/references
 
 6. More optimization tasks
-      1. Closed S+E, where we only care about S
+      1. Closed S, where we only care about a given subspace
+          (*) unitary gates
+      2. Closed S+E, where we only care about S
            * (unitary gates), state transfer
-      2. Open S+E, Markovian evolution, where we only care about S.
+      3. Open S+E, Markovian evolution, where we only care about S.
            * unitary gates/general maps, (state transfer)
+     (4) Co-operative gates using the projector technique
 
 7. More algorithms
       1. "Integrators"
            * (expm), (eigendecomposition), expv, ode solvers (for time-dependent H:s and H_c:s), t-DMRG, Taylor
       2. Gradients
-           * (GRAPE), (exact, finite diff, 1st order), higher-order series
+           * (GRAPE), (eigendecomposition, finite diff, Taylor series (with scaling and squaring), auxiliary matrix)
       3. Optimizers
-           * (L-BFGS, using fminunc), Newton-Raphson, Monotonic Krotov variant?, NM simplex (no gradient needed)
+           * (BFGS native), (BFGS using fminunc), L-BFGS, Newton-Raphson, Monotonic Krotov variant?, NM simplex (no gradient needed)
 
 8. User interface / features
       1. More button-type ui controls for the ui window
@@ -86,25 +88,18 @@ TODO list for Dynamo 2
 
 Random ideas and things to test:
 
-- target = id with relaxation
-
-- S+E, S+E+B: Kosut's paper on non-markovian distance measures:
-  http://arxiv.org/abs/quant-ph/0606064
+- Demo: target = eye() with relaxation
 
 - When are the controls kind of self-limited? Only if we need to wait
   for H_drift (coupling) to complete the operation?
-
-- UI: monitor_func is not called reliably, thus optimization does not always
-  terminate when trying to close the UI window
 
 - express a state transfer problem in a Hermitian basis => real
   vectors and matrices instead of complex ones, faster...
 
 - consistent function interface: dim as first or second parameter?
 
-- Module for nth-degree gradient approximation with repeated scaling
-  and squaring: Fouquieres et al., J. Magn. Reson. 212, 412 (2011).
-  Automatic choice of \epsilon for finite-difference gradient method, ibid.
+- Automatic choice of \epsilon for finite-difference gradient method,
+  Fouquieres et al., J. Magn. Reson. 212, 412 (2011).
 
 - performance-compare error_full and the approximation given by error_real
 
@@ -114,14 +109,8 @@ Random ideas and things to test:
 - Lots of profiling. why do we use almost 30% more time in task1 than Dynamo 1.2? recompute_timeslots is called more?!?
   we seem to need more optimization rounds, maybe sth wrong with the gradient?
 
-- error_abs and error_abs2 seem to give similar performance (as they should) (roughly same N_eval).
-
 - maybe it's not a good idea to normalize the error function with
   |X_f|^2 when doing state transfer since it (being the purity) varies?
-
-- check that the chosen gradient func matches with the error func!
-
-- fix the 'none yet' term reason when fminunc decides to terminate on its own
 
 - make setting control bounds/params easier/more automated
 
@@ -129,10 +118,31 @@ Random ideas and things to test:
 
 - problems resulting from using an approximated gradient (incl. finite diff with bad epsilon): breaking symmetries in controls, bad convergence, fake "dynamic" local minima?
 
-- decide what to do with the 1st order gradients, they're awful. see @dynamo/gradient_test.m
-
-- combine similar gradient and error funcs if there is no perfomance loss, merge gradient_setup into gradient funcs themselves.
-
 - open state overlap mode: warn if final state is not pure
 
+- exact full gradient by auxiliary matrix method: use sparse matrices, or Krylov subspace methods???
+  Krylov propagation => aux matrix becomes equivalent to commutator series?
+
+- task: k-state transfers (paper by A Spoerl (PRB, 2011))
+
 - analytic and piecewise analytic controls: http://arxiv.org/abs/1507.04261
+
+- Hessian conditioning also for BFGS, get rid of saddle-point related? shelves/plateaus in convergence
+
+- gpuarray / CUDA, parallelization
+
+- GUI: buttons: stop, resume, plot_pop etc.
+
+- store individual ensemble item errors in cache?
+  plot E of slices of ensembles
+
+- save/reload/resume
+
+- update manual, explain important classes and methods
+
+- task: states/unitaries divided into blocks, where phase differences between blocks are unimportant?
+  left multiply U with the corresponding phase gate, minimize error over the phases.
+  extreme case: unitaries with arbitrary phases (when we only care about populations)
+  E(U,T) = 1-1/n \sum_k | <k|U T^\dagger|> |
+
+- task: maximize the expectation value of an operator / make it as close to a target value as possible

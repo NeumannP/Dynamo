@@ -22,7 +22,7 @@ initial = eye(prod(dim));
 dyn = dynamo('closed gate_partial', initial, final, H_drift, H_ctrl);
 dyn.system.set_labels(desc, dim, c_labels);
 dyn.seq_init(20, 5 * [1, 0]);
-dyn.easy_control(0.1 * ones(1,6));
+dyn.set_controls(0.1);
 
 dyn.ui_open();
 dyn.search();

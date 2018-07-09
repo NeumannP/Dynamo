@@ -54,7 +54,7 @@ end
 
 % have we reached our goal?
 if optimValues.fval <= self.opt.options.error_goal
-    self.opt.term_reason = 'Goal achieved';
+    self.opt.term_reason = 'Error goal achieved';
     stop = true;
 end
 

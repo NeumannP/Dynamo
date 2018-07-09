@@ -1,7 +1,7 @@
 classdef control_seq < matlab.mixin.Copyable
 % Copyable handle class for control sequences.
 
-% Ville Bergholm 2011-2015
+% Ville Bergholm 2011-2016
 
   properties
       tau_par        % parametrization of tau, size == [n_timeslots, 2]
@@ -49,6 +49,9 @@ classdef control_seq < matlab.mixin.Copyable
         self.tau_par = tau_par;
         self.control_type = control_type;
         self.control_par = control_par;
+
+        % init raw params to some reasonable values, but do not transform them yet
+        self.raw = [zeros(n_timeslots, n_controls), acos(0) * ones(n_timeslots, 1)]; % tau: halfway
     end
 
     
@@ -64,7 +67,7 @@ classdef control_seq < matlab.mixin.Copyable
     end
     
     
-    function ret = get(self, control_mask)
+    function ret = get_raw(self, control_mask)
     % Returns the raw controls corresponding to the mask given, or all
     % of them if no mask is given.
 
@@ -76,7 +79,7 @@ classdef control_seq < matlab.mixin.Copyable
     end
 
     
-    function set(self, raw)
+    function set_raw(self, raw)
     % Transform and set the controls using a diagonal transformation function.
     %
     % raw: raw, untransformed control values, size(raw) == [n_timeslots, n_controls + 1].
@@ -84,55 +87,60 @@ classdef control_seq < matlab.mixin.Copyable
     % Uses the (fixed) control parameters.
 
         sss = size(raw);
-        n_controls = self.n_controls();
         
         % Check the number of control fields. The last column are the tau controls.
         if sss(1) ~= self.n_timeslots()
             error('Given controls have the wrong number of timeslots.')
         end
-        if sss(2) ~= n_controls + 1
+        if sss(2) ~= self.n_controls() + 1
             error('Given controls have the wrong number of control fields.')
         end
-
         self.raw = raw;
-        
+        self.transform();
+    end
+
+    function transform(self)
+    % Transforms the array of raw controls, and use it to initialize
+    % taus and control fields and their derivatives.
+
         % Tau control is the last one.
-        t_raw = raw(:, end);
+        t_raw = self.raw(:, end);
 
         % Returned tau values should always be positive, and not too large
         % if we're using the 1st order gradient approximation.
-        % Stretchy bins with min and max duration:  t_raw = 0 <=> min duration
+        % Stretchy bins with min and max duration:
+        % t_raw = 0    <=> min duration
+        % t_raw = pi/2 <=> average duration
         self.tau       = self.tau_par(:,1) +0.5 * self.tau_par(:,2) .* (1-cos(t_raw));
         self.tau_deriv = 0.5 * self.tau_par(:,2) .* sin(t_raw);
 
-        sss = sss -[0, 1];
+        sss = size(self.raw) -[0, 1];
         self.fields = zeros(sss);
         self.fields_deriv = zeros(sss);
 
-        for k=1:n_controls
+        for k=1:self.n_controls()
+            temp = self.raw(:, k);
             switch self.control_type(k)
               case '.'  % no transformation
-                self.fields(:, k) = raw(:, k);
+                self.fields(:, k) = temp;
                 self.fields_deriv(:, k) = 1;
         
               case 'p'  % strictly nonnegative, u_k = r_k^2
-                self.fields(:, k) = raw(:, k).^2;
-                self.fields_deriv(:, k) = 2 * raw(:, k);
+                self.fields(:, k) = temp.^2;
+                self.fields_deriv(:, k) = 2 * temp;
                 
               case 'm'  % minimum and delta, u_k = min + delta * 0.5 * (1 - cos(r_k))
                 par = self.control_par{k};
-                self.fields(:, k) = par(1) +par(2) * 0.5 * (1 -cos(raw(:, k)));
-                self.fields_deriv(:, k) = par(2) * 0.5 * sin(raw(:, k));
+                self.fields(:, k) = par(1) +par(2) * 0.5 * (1 -cos(temp));
+                self.fields_deriv(:, k) = par(2) * 0.5 * sin(temp);
       
               otherwise
                 error('Unknown control type.')
             end
         end
-
         % TODO u_x = A*cos(phi), u_y = A*sin(phi) (not diagonal, but within the same bin, i.e. block diagonal)
         % fields_deriv(slot, c_j, raw_k) = d c_{sj} / d raw_{sk}
     end
-
 
     function ret = inv_transform(self, fields)
     % Given an array of control field values (columns corresponding
@@ -226,11 +234,29 @@ classdef control_seq < matlab.mixin.Copyable
 
         % transform the new controls
         self.tau_par = tau_par;
-        self.set(raw);
+        self.raw = raw;
+        self.transform();
     end
 
 
-    function shake(self, rel_change)
+    function clip(self, limit)
+    % Clips the controls according to the limits in the limit vector.
+
+        n_timeslots = self.n_timeslots();
+        n_controls = self.n_controls();
+        t_shape = [n_timeslots, 1];
+        limit = ones(t_shape) * limit;
+
+        f = self.raw(:, 1:n_controls);
+        mask = f > limit;
+        f(mask) = limit(mask);
+        mask = f < -limit;
+        f(mask) = -limit(mask);
+        self.raw(:, 1:n_controls) = f;
+        self.transform();
+    end
+
+    function shake(self, rel_change, abs_change, t_dependent)
     % Makes a small random perturbation to the control sequence, can be used
     % to shake the system out of a local optimum.
     % Does not touch the tau values.
@@ -239,10 +265,21 @@ classdef control_seq < matlab.mixin.Copyable
         n_controls = self.n_controls();
         % shape vectors
         f_shape = [n_timeslots, n_controls];
+        t_shape = [n_timeslots, 1];
+        c_shape = [1, n_controls];
 
-        raw = self.get();
-        raw(:, 1:n_controls) = raw(:, 1:n_controls) .* (1 +rel_change * randn(f_shape));
-        self.set(raw);
+        f = self.raw(:, 1:n_controls);
+        if ~t_dependent
+            % perturb each control field randomly
+            p_abs = ones(t_shape) * (abs_change .* randn(c_shape));
+            p_rel = ones(t_shape) * (1 +rel_change .* randn(c_shape));
+            f = f .* p_rel +p_abs;
+        else
+            % add some time-dependent noise on top of the raw controls
+            f = f .* (1 +rel_change * randn(f_shape)) +abs_change * randn(f_shape);
+        end
+        self.raw(:, 1:n_controls) = f;
+        self.transform();
     end
 
 

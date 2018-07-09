@@ -3,7 +3,7 @@ function dyn = demo_tasks(task)
 %
 %  dyn = demo_tasks(task)
 
-% Ville Bergholm 2014
+% Ville Bergholm 2014-2016
 
 
 %% Pauli matrices
@@ -17,6 +17,7 @@ Z = [1, 0; 0, -1];
 % q-qubit Heisenberg chain
 
 q = 2;                 % number of qubits
+D_sub = 3;             % dimension of the interesting subspace (if applicable)
 qs = 1;                % number of system qubits (if applicable)
 dim = 2 * ones(1, q);  % dimension vector
 D = prod(dim);         % total dimension
@@ -38,7 +39,7 @@ H_drift = heisenberg(dim, @(s,a,b) J(s)*C(a,b));
 %c_labels = {'X', 'Y'};
 
 % limit driving Rabi frequency to the interval [-1, 1]
-control_type = 'mm';
+control_type = '..';
 temp = [-1,2] * 10;
 control_par = {temp, temp};
 
@@ -104,6 +105,14 @@ switch task
     final = qft(q);
     T = 1.6;
 
+  case 'closed gate subspace'
+    % random gate on a subspace
+    initial = eye(D);
+    % pad the non-interesting parts of final with zeroes
+    P = [eye(D_sub), zeros(D_sub, D-D_sub)];
+    final = P' * rand_U(D_sub) * P
+    T = 3;
+
   case 'closed state_partial'
     % first qubit to |1>
     final = [0; 1];
@@ -159,7 +168,7 @@ dyn.system.set_labels(desc, dim, c_labels);
 dyn.seq_init(bins, T * [1, 0], control_type, control_par);
 
 % random, constant initial controls
-dyn.easy_control(0, 0, 0.4, false);
+dyn.shake(0, 0.4, false);
 
 % do not optimize taus
 mask = dyn.full_mask(false);
@@ -170,5 +179,5 @@ mask = dyn.full_mask(false);
 dyn.ui_open();
 dyn.search(mask);
 %dyn.analyze();
-%figure; dyn.plot_X();
+%figure; dyn.plot_pop();
 end

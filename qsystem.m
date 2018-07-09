@@ -1,13 +1,13 @@
 classdef qsystem < matlab.mixin.Copyable
 % Copyable handle class defining a quantum system.
 
-% Ville Bergholm 2011-2014
+% Ville Bergholm 2011-2016
     
   properties
     description = ''    % description string
     dim                 % dimension (or dim vector) of the Hilbert space of the full system S+E
     dimSE               % total dimensions of S (the part we're interested in) and the environment E, as a two-vector
-    liouville = false   % Do the system objects X reside in Liouville or Hilbert space?
+    type = 'hilbert';   % Do the system objects X reside in Liouville or Hilbert space?
 
     weight = 1          % vector, length == n_ensemble, weights for the ensemble samples
     A                   % cell vector of drift generators, size == [n_ensemble, 1]
@@ -28,64 +28,102 @@ classdef qsystem < matlab.mixin.Copyable
       % Returns true iff H is hermitian
           ret = (norm(H -H') < 1e-10);  % FIXME magic number
       end
-      
-      function H = check_hamiltonian(H, message)
-      % Raises an error if H is not a valid Hamiltonian.
-          H = full(H); % eig and norm cannot handle sparse matrices...
-          if ~qsystem.is_hermitian(H)
-              error(strcat(message, ' is not hermitian.'))
+
+      function ret = get_A(A, k)
+      % Returns the drift generator A corresponding to ensemble index k.
+      % This and the corresponding get_B function only exist to
+      % enable more flexible input of A and B.
+
+          if isa(A, 'function_handle')
+              ret = A(k);
+          elseif iscell(A)
+              % cell array of matrices
+              ret = A{k};
+          else
+              % single matrix
+              ret = A;
           end
+          % eig and norm cannot handle sparse matrices...
+          ret = full(ret);
       end
 
-      function ret = test_gens(C, n_ensemble)
-      % Tests the validity of generators, converts them into
-      % function handles taking the ensemble index as a parameter.
+      function ret = get_B(B, k, c, n_ensemble)
+      % Returns the control generator B corresponding to ensemble index k, control field c.
 
-          if isa(C, 'function_handle')
-              % already a function handle
-              ret = C;
+          if isa(B, 'function_handle')
+              ret = B(k, c);
           else
-              if iscell(C)
-                  % cell array of matrices
-                  s = size(C);
-                  if s(1) == 1
-                      ret = @(k,c) C{1,c};  % same for every ensemble member
-                  elseif s(1) == n_ensemble
-                      ret = @(k,c) C{k,c};
-                  else
-                      error('Number of rows in cell array does not match n_ensemble.')
-                  end
-              else
-                  % single matrix (only used for A)
-                  ret = @(k,c) C;
-              end
+              % cell array of matrices
+              ret = B{k, c};
           end
+          ret = full(ret);
       end
   end
 
 
   methods (Access = private)
-    function [A, B] = common_init(self, A, B)
-    % Common initialization.
-
-        % prepare the generators
-        n_ensemble = self.n_ensemble();
-        A = qsystem.test_gens(A, n_ensemble);
-        B = qsystem.test_gens(B, n_ensemble);
+    function [ret, is_H] = setup_abstract(self, C, message)
+    % Process abstract generators.
+        ret = C;
+        is_H = false;
     end
-  
-    function [C, is_H] = get_liouvillian(self, C, message)
+
+    function [ret, is_H] = setup_hamiltonian(self, H, message)
+    % Process Hamiltonian generators. Raises an error if H is not a valid Hamiltonian.
+        if ~qsystem.is_hermitian(H)
+            error(strcat(message, ' is not hermitian.'))
+        end
+        ret = -1i * H;
+        is_H = true;
+    end
+
+    function [ret, is_H] = setup_liouvillian(self, C, message)
     % Convert Hamiltonians into Liouvillians if necessary.
 
         if length(C) == self.dim
             % assume it's a Hamiltonian
-            C = -1i * superop_comm(qsystem.check_hamiltonian(C, message));
-            C = full(C);  % TODO norm cannot handle sparse matrices, used in dynamo/gradient_test
-            is_H = true;
+            [ret, is_H] = self.setup_hamiltonian(C, message);
+            ret = full(superop_comm(ret));  % into a commutator superoperator
         else
             % assume it's a Liouvillian
+            ret = C;
             is_H = false;
         end
+    end
+
+    function setup_gens(self, A, B, func)
+    % Check and set up drift and control generators.
+
+        if iscell(A) && length(A) ~= self.n_ensemble()
+            error('Number of elements in cell array A does not match n_ensemble.')
+        end
+        if iscell(B)
+            s = size(B);
+            if s(1) == 1
+                B = @(k,c) B{1,c};  % same for every ensemble member
+            elseif s(1) ~= self.n_ensemble()
+                error('Number of rows in cell array B does not match n_ensemble.')
+            end
+            if s(2) ~= self.n_controls()
+                error('Specified number of controls does not match the number of columns in cell array B.')
+            end
+        elseif ~isa(B, 'function_handle')
+            error('Control generators must be given as a cell array or as a function handle.');
+        end
+
+        % Store the generators internally as cell arrays for efficiency.
+        temp = true(size(self.B));
+        for k = 1:self.n_ensemble()
+            msg = sprintf('Drift Hamiltonian (ensemble %d)', k);
+            self.A{k} = func(self, qsystem.get_A(A, k), msg);
+            for c = 1:self.n_controls()
+                msg = sprintf('Control Hamiltonian %d (ensemble %d)', c, k);
+                [self.B{k, c}, temp(k, c)] = func(self, qsystem.get_B(B, k, c), msg);
+            end
+        end
+        % TODO it does not make much sense to allow the type of a single
+        % control to vary between ensemble members... we should maybe check it here
+        self.B_is_Hamiltonian = all(temp, 1);
     end
   end
   
@@ -121,30 +159,25 @@ classdef qsystem < matlab.mixin.Copyable
     function abstract_representation(self, i, f, A, B)
     % X_ are abstract Hilbert space objects (vectors or matrices).
 
-        [A, B] = self.common_init(A, B);
+        self.type = 'abstract';
         self.X_initial = i;
         self.X_final = f;
         self.norm2 = norm2(self.X_final);
 
         % set the generators
-        for k = 1:self.n_ensemble()
-            self.A{k} = A(k);
-            for c = 1:self.n_controls()
-                self.B{k, c} = B(k, c);
-            end
-        end
+        self.setup_gens(A, B, @setup_abstract)
     end
 
-      
-    function hilbert_representation(self, i, f, A, B, use_partial)
+
+    function hilbert_representation(self, i, f, A, B, gate_partial)
     % X_ are Hilbert space objects (kets or operators).
     % Used for closed system tasks: state, ket, gate, gate_partial, (TODO state_partial).
     % For _partial tasks, i \in SE, f \in S.
     % (NOTE: the generators are not pure Hamiltonians, there's an extra -1i!)
         
-        [A, B] = self.common_init(A, B);
+        self.type = 'hilbert';
         self.X_initial = i;
-        if use_partial
+        if gate_partial
             % only with gate_partial
             self.X_final = kron(f, eye(self.dimSE(2)));
         else
@@ -155,13 +188,8 @@ classdef qsystem < matlab.mixin.Copyable
         % We use the Hilbert-Schmidt inner product (and the induced Frobenius norm) throughout the code.
         self.norm2 = norm2(self.X_final);
     
-        % set the generators
-        for k = 1:self.n_ensemble()
-            self.A{k} = -1i * qsystem.check_hamiltonian(A(k), sprintf('Drift Hamiltonian (ensemble %d)', k));
-            for c = 1:self.n_controls()
-                self.B{k, c} = -1i * qsystem.check_hamiltonian(B(k, c), sprintf('Control Hamiltonian %d (ensemble %d)', c, k));
-            end
-        end
+        % set up the generators
+        self.setup_gens(A, B, @setup_hamiltonian);
     end
 
 
@@ -169,9 +197,7 @@ classdef qsystem < matlab.mixin.Copyable
     % X_ are Liouville space vectors/operators corresponding to vec-torized state operators / unitary gates.
     % Used for open system tasks: state, state_partial, gate, (TODO gate_partial).
 
-        self.liouville = true;
-        [A, B] = self.common_init(A, B);
-        
+        self.type = 'liouville';
         if use_states
             % state vectors are converted to state operators
             self.X_initial = vec(to_op(i));
@@ -184,17 +210,7 @@ classdef qsystem < matlab.mixin.Copyable
         self.norm2 = norm2(self.X_final);
 
         % Set up Liouville space generators.
-        temp = true(size(self.B));
-        for k = 1:self.n_ensemble()
-            self.A{k} = self.get_liouvillian(A(k), sprintf('Drift Hamiltonian (ensemble %d)', k));
-            for c = 1:self.n_controls()
-                [self.B{k, c}, temp(k, c)] =...
-                    self.get_liouvillian(B(k, c), sprintf('Control Hamiltonian %d (ensemble %d)', c, k));
-            end
-        end
-        % TODO it does not make much sense to allow the type of a single
-        % control to vary between ensemble members... we should maybe check it here
-        self.B_is_Hamiltonian = all(temp, 1);
+        self.setup_gens(A, B, @setup_liouvillian);
     end        
 
 

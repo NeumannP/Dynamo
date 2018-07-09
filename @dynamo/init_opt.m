@@ -12,7 +12,7 @@ self.opt.control_integral  = self.seq.integral();
 %% other optimization data
 
 self.opt.control_mask = [];
-self.opt.initial_controls = self.seq.get();
+self.opt.initial_controls = self.seq.get_raw();
 self.opt.n_iter = 0;
 self.opt.n_eval = 0;
 self.opt.wall_start = now();

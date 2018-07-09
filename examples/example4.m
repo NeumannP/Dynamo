@@ -126,16 +126,12 @@ final   = zeros(D,1); final(2) = 1;  % '0..01'
 dyn = dynamo('open state overlap', initial(p), final(p), L_drift, H_ctrl);
 dyn.system.set_labels(desc, st_labels, c_labels);
 
-% try the expensive-but-reliable gradient method
-%dyn.config.epsilon = 1e-5;
-%dyn.config.gradient_func = @gradient_g_finite_diff;
-
 
 %% set up controls
 T = 10;
 
 dyn.seq_init(151, T * [0.5, 1.0], control_type, control_par);
-dyn.easy_control(0.1 * ones(1,n_sites));
+dyn.set_controls(0.1);
 
 
 %% now do the actual search

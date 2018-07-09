@@ -26,7 +26,7 @@ self.plot_seq(ax);
 
 ax = subplot(3, 1, 2);
 set_plotstyle(ax);
-self.plot_stats('error', ax);
+self.plot_stats('error semilog', ax);
 title(ax, 'Optimization error')
 
 

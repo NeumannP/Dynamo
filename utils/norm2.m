@@ -5,4 +5,4 @@ function ret = norm2(A)
 
 
 % real() is just taking care of rounding errors
-ret = real(inprod(A, A));
+ret = full(real(inprod(A, A)));

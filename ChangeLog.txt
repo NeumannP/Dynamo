@@ -6,18 +6,48 @@ Changelog for DYNAMO - Quantum Dynamic Optimization Package
 b bugfix
 
 
-1.4.0       in progress
+1.4.0       2016-07-14
+              + ChangeLog.txt
+              + Ensemble optimization.
+              * dynamo/compute_error can return errors and gradients of individual ensemble members.
               * docs: User manual expanded and updated.
-              * dynamo: Stats system can handle several optimization runs.
-                Interrupted runs can be continued automatically.
-              b Always returns the reason why the optimization ended.
+              * Stats system can handle several optimization runs. Interrupted runs can be continued automatically.
+              * dynamo/easy_control replaced with dynamo/set_controls.
+              * Gradient system simplified. Added gradients using a truncated Taylor series
+                with scaling and squaring, and the auxiliary matrix technique.
+              + dynamo/gradient_dPdu
+              + utils/dPdu_series, utils/dPdu_eig, utils/dPdu_auxmatrix
+              - dynamo/error_real
+              - dynamo/gradient_full
+              - dynamo/gradient_g
+              - dynamo/gradient_g_mixed_exact
+              - dynamo/gradient_tr
+              * Implemented various numerics-related recommendations from Nocedal-Wright.
+              + utils/bfgs: Native implementation of the BFGS optimization algorithm.
+              + utils/apply_options: MATLAB-style options processing.
               + dynamo/plot_pop, dynamo/plot_eig, dynamo/plot_stats: New plotting functions.
               + dynamo/shake: Randomly perturbs the control sequence, can be used to get out of local optima.
               + dynamo/split: Refines the control sequence by splitting given bins into several.
-              + dynamo/gradient_full_exact: Exact gradient using the auxiliary matrix technique.
               + test: Unit tests for DYNAMO.
               + test_rand_problem: Generates random optimization problems for testing/benchmarking purposes.
               + test_benchmark: Measures the walltime required to compute different errors and gradients.
               + examples/demo_coop_gates
+              + examples/demo_tau
+              + examples/demo_tasks
+              + examples/demo_ensemble
+              - examples/demo_abstract
+              b Always returns the reason why the optimization ended.
               b dynamo/gradient_setup: gradient_g_mixed_exact provided with wrong *_needed_now.
+              b dynamo/gradient_g_mixed_exact: gradient with respect to tau was wrong.
               b qsystem.B_is_Hamiltonian was not set up properly, resulting in a spurious warning.
+
+
+1.4.1       in progress
+              * init: added the examples directory to the path
+              * New task 'closed gate subspace' for the cases where you only care about what happens in a specific subspace.
+              * Optimizing co-operative gates/state transfers in open and closed systems using the projector technique.
+              * utils/control_ops:  Normalization changed for the Liouvillians (now lowest eigenvalue == -1)
+              + dynamo/frobenius_error
+              + dynamo/evaluate_X
+              + control_seq/transform
+              + cache/combined_propagator

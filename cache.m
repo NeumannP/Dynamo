@@ -2,66 +2,74 @@ classdef cache < matlab.mixin.Copyable
 % Copyable handle class for doing the heavy computing and storing the results.
 
 % Shai Machnes   2010-2011
-% Ville Bergholm 2011-2013
+% Ville Bergholm 2011-2016
     
 
   properties (SetAccess = private)
       %% cell arrays: Q{timeslice, ensemble_index}
       H  % Generator for a time slice. Not just the Hamiltonian, see below.
       P  % Propagator for a time slice, computed by calcPfromHfunc. With a constant H, P == expm(dt * H). 
-      U  % Forward propagators. U{k+1} = P{k} * U{k}
+      U  % Initial state propagated forward. U{k+1} = P{k} * U{k}
          % U{k} is the system at t = sum(tau(1:(k-1))) = t_{k-1}
-      L  % Backward propagators. L{k-1} = L{k} * P{k-1};
+      L  % Final (target) state propagated backward. L{k-1} = L{k} * P{k-1}
          % L{k} is the adjoint system at t = sum(tau(1:(k-1))) = t_{k-1}
+         % Exception: With error_full, L is the full backwards propagator.
 
       H_v           % eigendecomposition data for dt*H, updated when P is updated  
       H_eig_factor  % likewise
+      W             % TEST, scaling and squaring, W{t, ens} = {A, A^2, A^4...}
       
       %% cell array: g{ensemble_index}
       g  % trace_q(L{k} * U{k}), where q is S or E depending on the error function used.
   end
 
   properties (Access = public)
-      H_needed_now  % flags, Q[timeslice]
+      %% logical arrays, Q(timeslice)
+      H_needed_now
       P_needed_now
       U_needed_now
       L_needed_now
       g_needed_now  % scalar
       
       E        = NaN  % gradient_*_finite_diff: cached error
-      VUdagger = NaN  % cached SVD data for error_tr, error_abs (also used by error_real) 
+      VUdagger = NaN  % cached SVD data for error_tr, error_abs
       int  = []   % TEST, integrator
   end
 
   properties (Access = private)
-      H_is_stale  % flags, Q[timeslice]
+      %% logical arrays, Q(timeslice)
+      H_is_stale
       P_is_stale
       U_is_stale
       L_is_stale
       g_is_stale  % scalar
       
       calcPfromHfunc
-      UL_mixed  % flag: use mixed states in Hilbert space representation?
+      UL_mixed  % flag: U and L are density matrices in Hilbert space representation and are propagated from both sides
   end
 
   methods
-      function self = cache(n_timeslots, n_ensemble, U_start, L_end, use_eig, UL_hack)
+      function self = cache(n_timeslots, n_ensemble, U_start, L_end, dP_method, UL_hack)
       % Set up caching (once we know the number of time slices and U and L endpoints).
 
           s_time     = [1, n_timeslots];
           s_ensemble = [1, n_ensemble];
           s_full     = [n_timeslots, n_ensemble];
-          
-          if use_eig
-              % Store the eigendecomposition data as well
+
+          switch dP_method
+            case 'eig'
+              % Exact gradient using eigendecomposition? Store the eigendecomposition data.
               self.H_v          = cell(s_full);
               self.H_eig_factor = cell(s_full);
               self.calcPfromHfunc = @calcP_expm_exact_gradient;
-          else
+            case 'series_ss'
+              % Taylor series with scaling and squaring: store the squares.
+              self.W = cell(s_full);
+              self.calcPfromHfunc = @calcP_expm_scaling_and_squaring;
+            otherwise
               self.calcPfromHfunc = @calcP_expm;
           end
           self.UL_mixed = UL_hack;
-
           self.H = cell(s_full);
           self.P = cell(s_full);
           self.U = cell(s_full + [1, 0]); % one more timeslot
@@ -128,9 +136,11 @@ classdef cache < matlab.mixin.Copyable
 
 
       function set_P(self, t, k, P)
-      % Sets P{t, k} to the given value.
-          self.P{t, k} = P;
-          self.H{t, k} = NaN;
+      % Sets P{t, k} to the given value. FIXME TODO should it be set for every ensemble member?
+          for ind = t
+              self.P{ind, k} = P;
+              self.H{ind, k} = NaN;
+          end
           % mark U, L and g as stale, P and H as not stale.
           self.mark_as_stale(t);
           self.P_is_stale(t) = false;
@@ -227,21 +237,26 @@ classdef cache < matlab.mixin.Copyable
 
           % Compute the Us - forward propagation (we never recompute U{1})
           % Compute the Ls - adjoint system propagation
-          if self.UL_mixed
-              % mixed states, unitary evolution: propagate from both sides
-              for t=u_idx
-                  self.U{t, k} = self.P{t-1, k} * self.U{t-1, k} * self.P{t-1, k}';
+          for t=u_idx
+              temp = self.P{t-1, k}; % NOTE t-1, because U{1} is the initial state
+              if isa(temp, 'function_handle')
+                  self.U{t, k} = temp(t-1, self.U{t-1, k}, false);
+              elseif self.UL_mixed
+                  % mixed states, unitary evolution: propagate from both sides
+                  self.U{t, k} = temp * self.U{t-1, k} * temp';
+              else
+                  % propagate U from left, L from right
+                  self.U{t, k} = temp * self.U{t-1, k};
               end
-              for t=el_idx
-                  self.L{t, k} = self.P{t, k}' * self.L{t+1, k} * self.P{t, k};
-              end
-          else
-              % propagate U from left, L from right
-              for t=u_idx
-                  self.U{t, k} = self.P{t-1, k} * self.U{t-1, k};
-              end
-              for t=el_idx
-                  self.L{t, k} = self.L{t+1, k} * self.P{t, k};
+          end
+          for t=el_idx
+              temp = self.P{t, k};
+              if isa(temp, 'function_handle')
+                  self.L{t, k} = temp(t, self.L{t+1, k}, true);
+              elseif self.UL_mixed
+                  self.L{t, k} = temp' * self.L{t+1, k} * temp;
+              else
+                  self.L{t, k} = self.L{t+1, k} * temp;
               end
           end
 
@@ -253,7 +268,7 @@ classdef cache < matlab.mixin.Copyable
                   self.g{k} = partial_trace(temp, sys.dimSE, 2);
               
               elseif sys.dimSE(2) == 1
-                  % error_abs, error_real, no environment E, full trace, g is a scalar
+                  % error_abs, no environment E, full trace, g is a scalar
                   self.g{k} = trace_matmul(self.L{g_ind, k}, self.U{g_ind, k});
               
               else
@@ -305,6 +320,23 @@ classdef cache < matlab.mixin.Copyable
           ret = v * diag(exp_d) * v';
       end
 
+      function P = calcP_expm_scaling_and_squaring(self, t, k, dt)
+      % Computes P{t, k} using expm with scaling and squaring,
+      % stores the intermediate powers for computing the
+      % derivatives later on.
+
+          s = abs(dt) * norm(self.H{t, k}, 1);  % 1-norm is easy to compute
+          n = max(0, ceil(log2(s)));            % number of squarings
+          gtau = self.H{t, k} * (dt / 2^n);     % scaling
+          W = cell(1,n);
+          P = expm(gtau);  % first power
+          for r=1:n
+              % store the current power, then square it
+              W{r} = P;
+              P = P * P; % This seems faster than P^2. Argh.
+          end
+          self.W{t, k} = W;  % store the powers of gtau
+      end
 
       function ret = calcP_expm(self, t, k, dt)
       % Computes P{t, k} using expm.
@@ -359,6 +391,20 @@ classdef cache < matlab.mixin.Copyable
           end
           self.U_needed_now(t) = true;
           self.L_needed_now(t) = true;
+      end
+
+
+      function ret = combined_propagator(self, first, last)
+      % Returns the combined propagator for time slices first:last,
+      % corresponding to propagation from t_{first-1} to t_{last}.
+
+          if first > last
+              error('The first bin number must be less than or equal to the last.')
+          end
+          ret = self.P{first};
+          for k=first+1:last
+              ret = self.P{k} * ret;
+          end
       end
   end
 end

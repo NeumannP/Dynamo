@@ -2,21 +2,29 @@ function [C, labels] = control_ops(dim, ctrl)
 % Returns a cell vector of local control operators.
 %  [C, labels] = control_ops(dim, ctrl)
 %
+%  The returned control operators are either Hamiltonians or Liouvillian superoperators.
+%  For now the Liouvillians are only defined for qubit systems.
+%
 %  dim is the system dimension vector.
 %  ctrl is a string consisting of tokens separated with commas.
 %
-%  Each token consists of an optional numerical prefix denoting the
+%  Each token in ctrl consists of an optional numerical prefix denoting the
 %  subsystems to which it applies, followed by a string of local
 %  operator specifiers.
 %
-%  The prefix can be either 'a:b' denoting a range, or 'a' denoting a single subsystem.
+%  The prefix can be either p:q denoting a range, or an integer denoting a single subsystem.
 %  If there is no prefix, the token applies to all subsystems.
 %
 %  The allowed operator specifiers are the following chars:
-%    'x', 'y' and 'z'  generators of unitary rotations
-%    'd'               dephasing (unital)
-%    'i'               isotropic depolarization (unital)
-%    'a'               amplitude damping towards the |0> state
+%    'x', 'y' and 'z'  H  generators of unitary rotations (angular momentum operators)
+%    'd'               L  dephasing/phase flip (unital)
+%    'b'               L  bit flip (unital)
+%    'i'               L  isotropic depolarization (unital)
+%    'a'               L  amplitude damping towards the |0> state
+%
+%  The rotation generators are normalized in the usual fashion: [x, y] = 1i * z,
+%  and hence expm(-1i * z * \theta) is a rotation around the z axis by \theta radians.
+%  The Liouvillian superoperators are normalized such that their lowest eigenvalue is -1.
 %
 %  Example:
 %    The function call
@@ -26,9 +34,7 @@ function [C, labels] = control_ops(dim, ctrl)
 %    returns a total of 7 control operators for a three-qubit system:
 %    X and Y rotations for every qubit, plus dephasing for the third one.
 
-% TODO Explain normalization, non-qubits...
-    
-% Ville Bergholm 2011-2012
+% Ville Bergholm 2011-2016
 
 
 % for qubits
@@ -91,14 +97,14 @@ while ~isempty(token)
                 if dim(k) ~= 2
                     error('Bit flip not yet defined for non-qubits.')
                 end
-                C{end+1} = superop_lindblad({mkron(Ia, X/2, Ib)});
-                labels{end+1} = sprintf('Dx_%d', k);                
+                C{end+1} = superop_lindblad({mkron(Ia, X/sqrt(2), Ib)});
+                labels{end+1} = sprintf('Dx_%d', k);
                 
               case 'd'
                 if dim(k) ~= 2
                     error('Dephasing not yet defined for non-qubits.')
                 end
-                C{end+1} = superop_lindblad({mkron(Ia, Z/2, Ib)});
+                C{end+1} = superop_lindblad({mkron(Ia, Z/sqrt(2), Ib)});
                 labels{end+1} = sprintf('Dz_%d', k);
 
               case 'i'

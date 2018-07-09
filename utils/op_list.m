@@ -27,19 +27,23 @@ function [H] = op_list(G, dim)
 %  corresponds to the operator
 %    O = sz_1 +sz_2 +2*sz_3 +sx_1*sx_3 +sy_1*sy_3 +sz_1*sz_3 +A_2*(B+C)_3.
 
-% Ville Bergholm 2009-2010
+% Ville Bergholm 2009-2017
 
 
-if (nargin < 2)
+if nargin < 2
   % TODO we could try to infer dim from the operators
   error('Need both the list and the dimension vector.')
 end
 
-n = length(G); % number of terms
-H = sparse(0);
+n = length(G(:)); % number of terms
+D = prod(dim);
+H = sparse(D, D);
 
 for k=1:n
   spec = G{k}; % m*2 cell array
+  if isempty(spec)
+      continue  % for convenience an empty spec is skipped
+  end
   s = size(spec);
   if (s(2) ~= 2 || s(1) < 1)
     error('Malformed term spec %d', k)

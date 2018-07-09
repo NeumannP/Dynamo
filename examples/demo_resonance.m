@@ -3,16 +3,17 @@ function dyn = demo_resonance(delta)
 %
 %  dyn = demo_resonance(delta)
 %
-%  Optimizes a single-qubit control sequence for the state transfer |0> \to |1>.
+%  Optimizes a single-qubit control sequence for a pi rotation.
 %  delta is the detuning (difference between the carrier and
-%  resonance frequencies). Uses RWA, ignores the fast-rotating term.
+%  resonance frequencies) relative to the driving Rabi frequency.
+%  Uses RWA, ignores the fast-rotating term.
 %
 %  Resonant driving (delta = 0) yields just a constant-strength pi pulse.
 %  Slightly off-resonant driving (delta = 0.1) discovers a CORPSE-type sequence.
 %  Far off-resonant driving (delta = 5) results in a sinusoidal pulse that
 %  tries to approximate resonant driving.
 
-% Ville Bergholm 2011-2014
+% Ville Bergholm 2011-2016
 
 if nargin < 1
     delta = 5;
@@ -40,20 +41,20 @@ H_drift = -delta * Z / 2;
 control_type = 'm';
 control_par = {[-1,2]};
 
-% pure state transfer
-initial = [1 0]';
-final = [0 1]';
+% initial and final gates
+initial = eye(2);
+final = expm(-1i*[0,1;1,0]*pi/2);  % pi_x rotation
 
-dyn = dynamo('closed ket', initial, final, H_drift, H_ctrl);
+dyn = dynamo('closed gate', initial, final, H_drift, H_ctrl);
 dyn.system.set_labels('Single-qubit resonant driving demo.', dim, c_labels);
 
 
 %% Initial controls
 
 % random initial controls
-T = 6;
+T = 2*pi;
 dyn.seq_init(201, T * [1, 0], control_type, control_par);
-dyn.easy_control(0, 0, 1, false);
+dyn.set_controls(2*rand(1)-1);
 
 
 %% Now do the actual search

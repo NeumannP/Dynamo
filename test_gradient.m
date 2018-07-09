@@ -1,8 +1,12 @@
-function [d, direction] = test_gradient(d, direction)
-% Checks if the computed gradient of the error function is accurate.
+function [d, direction] = test_gradient(test, d, direction)
+% Tests the error functions and their gradients.
 %
 %  d is a Dynamo instance containing the optimization problem used.
 %  If no d is given, uses one of the test suite problems.
+%
+%  test == 'time':  Measures the walltime required to compute the error function and gradient.
+%
+%  test == 'acc':  Checks if the computed gradient of the error function is accurate.
 %
 %  Given an error fuction f(\vec{x}), an accurate gradient
 %  evaluated at the point \vec{x0} yields a linearization
@@ -19,87 +23,102 @@ function [d, direction] = test_gradient(d, direction)
 %
 %  1st order approximations turn to O(s) scaling almost immediately
 %  For basic finite difference methods, \vec{grad_error} should be proportional to epsilon.
-    
-% Ville Bergholm 2011-2015
+
+% Ville Bergholm 2011-2016
 
 
 %randseed(seed);
 
-
 %% set up a system, random controls
 
-if nargin < 1
-    d = test_suite(21);
-    d.easy_control({d.seq.fields, d.seq.tau+0.01*randn(size(d.seq.tau))});
+if nargin < 2
+    switch test
+      case 'acc'
+        d = test_suite(21);
+        d.set_controls([], d.seq.tau+0.01*randn(size(d.seq.tau)));
+        
+      case 'time'
+        d = test_rand_problem('closed gate', 16, 4);
+    end
 end
    
 
 %% choose an error function and a compatible gradient
 
 ff = 'full'
-gg = 'exact'
+gg = 'fd'
 
-% for the finite_diff methods only
-d.config.epsilon = 1e-3;
+d.config.epsilon  = 2e-8;
+d.config.UL_mixed = false;
 
 ttt = ['error\_', ff, ', gradient\_', gg];
+
+switch gg
+  case 'fd'
+    ttt = sprintf('%s, epsilon = %g', ttt, d.config.epsilon);
+end
+
+
+d.config.dP = gg;
 switch ff
-  case 'g'
+  case 'abs'
     d.config.error_func = @error_abs;
-    %d.config.error_func = @error_real;
-    switch gg
-      case 'exact'
-        d.config.gradient_func = @gradient_g_exact;
-      case '1st'
-        d.config.gradient_func = @gradient_g_1st_order;
-      case 'diff'
-        d.config.gradient_func = @gradient_g_finite_diff;
-      otherwise
-        error('zzzz')
-    end
+    d.config.nonprojective_error = false;
+
+  case 'real'
+    d.config.error_func = @error_abs;
+    d.config.nonprojective_error = true;
+    %d.config.UL_mixed = true;  % requires a task with mixed initial/final states
 
   case 'tr'
     d.config.error_func = @error_tr;
-    switch gg
-      case 'exact'
-        d.config.gradient_func = @gradient_tr_exact;
-      case 'diff'
-        d.config.gradient_func = @gradient_tr_finite_diff;
-      otherwise
-        error('zzzz')
-    end
 
   case 'full'
     d.config.error_func = @error_full;
-    switch gg
-      case 'exact'
-        d.config.gradient_func = @gradient_full_exact;
-      case '1st'
-        d.config.gradient_func = @gradient_full_1st_order;
-      case 'diff'
-        d.config.gradient_func = @gradient_full_finite_diff;
-      otherwise
-        error('zzzz')
-    end
 
   otherwise
     disp('Keeping the old error function and gradient.')
     ttt = '';
 end
 
+% required after changing error/gradient func
+d.cache_init()
 
-
-%% test the accuracy
-
+% full gradient, including tau
 mask = d.full_mask(true);
 
+
+switch test
+%% walltime benchmark
+  case 'time'
+
 % save the initial controls
-x0 = d.seq.get(mask);
+%x0 = d.seq.get_raw(mask);
+%d.update_controls(x0 + delta, mask);
+
+tic
+for k=1:10
+    [err, grad] = d.compute_error(mask);
+end
+t = toc
+
+
+%% test the gradient accuracy
+  case 'acc'
+
+% for flushing out gradient_setup bugs:
+% perturb controls, do/do not recompute entire cache
+%x1 = x0 +randn(size(x0));
+%d.update_controls(x1, mask);
+%d.cache_fill();  % recompute everything
+
+% save the initial controls
+x0 = d.seq.get_raw(mask);
 
 % error function and its gradient at x0
 [err, grad] = d.compute_error(mask);
 
-if nargin < 2
+if nargin < 3
     % random unit direction in parameter space
     direction = randn(size(x0));
 
@@ -109,7 +128,7 @@ elseif isempty(direction)
 end
 direction = direction / norm(direction);
     
-s = logspace(0, -6, 30);
+s = logspace(0, -10, 40);
 diff = [];
 predicted = [];
 accurate = [];
@@ -140,6 +159,7 @@ subplot(1,2,1)
 loglog(s, diff, 'b-o', s, s.^2, 'r', s, s, 'g');
 xlabel('|\Delta x|')
 ylabel('|error|')
+grid on
 legend('gradient error', 'quadratic', 'linear')
 title(ttt)
 
@@ -147,6 +167,7 @@ subplot(1,2,2)
 semilogx(s, predicted, 'b-o', s, accurate, 'r-o');
 xlabel('|\Delta x|')
 ylabel('f(x)')
+grid on
 legend('predicted', 'accurate');
 title(ttt)
 end
